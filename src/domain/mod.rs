@@ -72,6 +72,7 @@ pub mod customer {
     pub struct Address {
         pub street: String,
         pub country: String,
+        pub city: String,
         pub post_code: String,
     }
 
@@ -84,6 +85,7 @@ pub mod customer {
             pub username: String,
             pub name: String,
             pub age: i32,
+            pub email: String,
             pub address: Address,
         }
 

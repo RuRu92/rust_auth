@@ -9,7 +9,7 @@ mod repository;
 mod service;
 mod db;
 
-const URL: &str = "mysql://ruru:77lc3lm00@localhost:3306/id";
+const URL: &str = "mysql://root:password@localhost:3306/auth";
 
 use route::{routes};
 use crate::db::ExecutionContext;
@@ -35,15 +35,7 @@ async fn main() -> std::io::Result<()> {
 
     let provider = realm_settings_provider.clone();
 
-    actix_rt::spawn(async {
-        let interval = actix_rt::time::interval(std::time::Duration::from_secs(15));
-        loop {
-            interval.tick().await;
-            actix_rt::task::spawn_blocking(move || {
-                &provider.reload();
-            }).await;
-        }
-    });
+    actix_rt::spawn(refresh_realm_settings(provider));
 
     let app_data = web::Data::new(AppState {
         realm_settings_provider,
@@ -62,4 +54,15 @@ async fn main() -> std::io::Result<()> {
         .bind("127.0.0.1:9090")?
         .run()
         .await
+}
+
+async fn refresh_realm_settings(arc: Arc<RealmSettingProvider>) {
+    let mut interval = actix_rt::time::interval(std::time::Duration::from_secs(15));
+    loop {
+        interval.tick().await;
+        let provider = arc.clone();
+        actix_rt::task::spawn_blocking(move || {
+            &provider.reload();
+        });
+    }
 }

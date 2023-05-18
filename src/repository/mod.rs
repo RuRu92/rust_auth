@@ -55,11 +55,12 @@ impl UserStorage {
             u.name,\
             u.role, \
             a.street, \
+            a.city, \
             a.post_code, \
             a.country \
             FROM user u \
             INNER JOIN address a on u.id = a.user_id ",
-            |(id, name, role, street, post_code, country)| {
+            |(id, name, role, street, city, post_code, country)| {
                 UserWithAddress {
                     user_id: id,
                     role,
@@ -67,6 +68,7 @@ impl UserStorage {
                     address: Address {
                         street,
                         country,
+                        city,
                         post_code,
                     },
                 }
@@ -83,12 +85,15 @@ impl Repository<User> for UserStorage {
     fn create_from(data: Self::CreationData, tx: &mut Transaction) -> Result<Self::ID> {
         let user_id = Uuid::new_v4().to_string();
         tx.exec_drop(
-            "INSERT INTO User (id, role, name) \
-                      VALUES (:id, :role, :name)",
+            "INSERT INTO user (user_id, username, role, name, email) \
+                      VALUES (:user_id, :username, :role, :name, :email)",
             params! {
-            "id" => &user_id,
+            "user_id" => &user_id,
+            "username" => &data.username,
             "role" => Role::CUSTOMER.to_string(),
-            "name" => data.name })
+            "name" => &data.name,
+            "email" => &data.email,
+            })
             .expect("Failed to create user");
 
         return Ok(user_id);
@@ -130,17 +135,19 @@ impl Repository<Address> for AddressStorage {
         let address_id = Uuid::new_v4().to_string();
 
         tx.exec_drop(
-            "INSERT INTO Address (\
+            "INSERT INTO address (\
             address_id, \
             user_id, \
             street, \
             post_code, \
             country, \
+            city, \
             country_code) \
             VALUES (\
              :address_id, \
              :user_id, \
              :street, \
+             :city, \
              :post_code, \
              :country, \
              :country_code)",
@@ -148,6 +155,7 @@ impl Repository<Address> for AddressStorage {
                 "address_id" => &address_id,
                 "user_id" => &user_id,
                 "street" => &address.street,
+                "city" => &address.city,
                 "post_code" => &address.post_code,
                 "country" => &address.country,
                 "country_code" => "UK".to_string() })

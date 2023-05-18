@@ -1,12 +1,11 @@
 use mysql::{Pool, Result, TxOpts, AccessMode, Transaction};
 use std::sync::Arc;
 use std::ops::FnOnce;
+use std::os::windows::io::HandleOrInvalid;
 
 pub struct DB {
     pub pool: Pool
 }
-
-// type Handler = impl FnOnce(&Transaction) -> Result<R>;
 
 impl DB {
     pub fn init(url: &str) -> DB {

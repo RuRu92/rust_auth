@@ -1,3 +1,5 @@
+pub mod token;
+
 pub mod customer_service {
     use std::str::FromStr;
     use crate::domain::customer::{User, Role, dto::CreateUser, UserWithAddress};

@@ -27,7 +27,7 @@ impl RealmSettingProvider {
             }));
         }
 
-        RealmSettingProvider { settings: Arc::new(realm_settings), db, write_lock: Box::new(false)}
+        RealmSettingProvider { settings: Arc::new(realm_settings), db}
     }
 
     pub fn is_confirmation_required(&self, realm: &RealmName) -> bool {
@@ -69,25 +69,21 @@ impl RealmSettingProvider {
     }
 
     pub fn reload(&self) -> &Self {
-        if self.write_lock == false {
-            let realms = vec!("rj.fg", "rj.wire", "rj.fa");
-            let mut rng = rand::thread_rng();
+        let mut settings = &self.settings.clone();
+        let mut rng = rand::thread_rng();
 
-            for r in realms {
-                if let Some(sett) = &self.settings.get(r) {
-                    let mut s = sett.write().unwrap();
-                    *s = InternalRealmSettings {
-                        is_confirmation_required: false,
-                        is_guest_allowed: false,
-                        authentication_token_duration: Duration::new(rng.gen_range(0..180), 0),
-                        refresh_token_duration: Duration::new(rng.gen_range(0..90), 0),
-                        password_reset_token_duration: Duration::new(rng.gen_range(0..50), 0),
-                    }
-                }
+        for (realm, value) in settings.as_ref().iter() {
+            let mut lock = value.write().unwrap();
+            *lock = InternalRealmSettings {
+                is_confirmation_required: false,
+                is_guest_allowed: false,
+                authentication_token_duration: Duration::new(rng.gen_range(0..180), 0),
+                refresh_token_duration: Duration::new(rng.gen_range(0..90), 0),
+                password_reset_token_duration: Duration::new(rng.gen_range(0..50), 0),
             };
-            *self.write_lock = Box::new(true);
-            println!("updated realm settings");
+            println!("updated realm settings for {}", realm);
         }
+
         self
     }
 }

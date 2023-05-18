@@ -39,8 +39,8 @@ fn realm_resource() -> Scope {
 
 fn admin_resource() -> Resource {
     return web::resource("/admin")
-        .route(web::get().to(|| HttpResponse::Ok().body("test")))
-        .route(web::head().to(|| HttpResponse::MethodNotAllowed()));
+        .route(web::get().to(||  async { HttpResponse::Ok().body("test")}))
+        .route(web::head().to(|| async { HttpResponse::MethodNotAllowed()}));
 }
 
 

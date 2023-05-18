@@ -1,0 +1,19 @@
+version: '3'
+
+services:
+
+  mysql:
+    image: mysql:latest
+    restart: always
+    deploy:
+      mode: replicated
+      replicas: 1
+    environment:
+      MYSQL_ROOT_PASSWORD: password  # Set your desired root password here
+      MYSQL_DATABASE: auth     # Set your desired database name here
+      MYSQL_USER: ruru         # Set your desired username here
+      MYSQL_PASSWORD: password     # Set your desired password here
+    ports:
+      - "3306:3306"                       # Expose MySQL port
+    volumes:
+      - ./db-data/mysql/:/var/lib/data/       # Mount volume for persistent data
