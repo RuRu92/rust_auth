@@ -17,3 +17,4 @@ services:
       - "3306:3306"                       # Expose MySQL port
     volumes:
       - ./db-data/mysql/:/var/lib/data/       # Mount volume for persistent data
+      - ./sql/:/docker-entrypoint-initdb.d/

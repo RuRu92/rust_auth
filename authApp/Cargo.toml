@@ -8,6 +8,7 @@ edition = "2018"
 
 [dependencies]
 actix-web = "4.3.1"
+actix-rt = "2.8.0"
 serde = { version = "1", features = ["derive"] }
 #diesel = { version = "1.4.4", features = ["mysql"] }
 #diesel = { version = "1.4.4", features = ["mysql"] }
@@ -18,4 +19,7 @@ strum = "0.24.1"
 strum_macros = "0.24.3"
 rand = "0.8.3"
 jsonwebtoken = "8.3.0"
-#domain = {path = "src/domain.rs"}
+ring = "0.16.20"
+rand_core = { version = "0.6", features = ["std"] }
+sha2 = "0.10.6"
+data-encoding = "2.3.3"
