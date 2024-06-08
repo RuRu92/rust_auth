@@ -11,6 +11,7 @@ use std::fmt::{Debug, Display, Formatter};
 use strum_macros::Display;
 
 pub mod web {
+    use std::convert::Infallible;
     use crate::domain::realm::{Realm, RealmName};
     use actix_web::body::BoxBody;
     use actix_web::http::header::{ContentType, HeaderMap, HeaderValue};
@@ -20,6 +21,7 @@ pub mod web {
     use serde::Serialize;
     use std::fmt;
     use std::fmt::{Debug, Display, Formatter};
+    use actix_web::web::Json;
 
     pub trait RealmFinder {
         type Realm;
@@ -165,6 +167,40 @@ pub mod web {
                 .body(self.to_string())
         }
     }
+
+    trait ApplicationError {
+        type Error;
+        fn to_json_response(self) -> JsonErrorResponse<Self::Error>;
+
+    }
+
+    #[derive(Debug)]
+    pub enum LoginError {
+        MissingAppState,
+        MissingRealmHeader,
+        DatabaseError(String),
+        UserNotFound,
+        AuthenticationFailed,
+        // Other error types...
+    }
+
+    impl From<LoginError> for JsonErrorResponse<Option<String>> {
+        fn from(err: LoginError) -> Self {
+            match err {
+                LoginError::MissingAppState => JsonErrorResponse::new(None, "App state not found".to_string(), StatusCode::INTERNAL_SERVER_ERROR),
+                LoginError::MissingRealmHeader => JsonErrorResponse::new(None, "Must contain realm header".to_string(), StatusCode::BAD_REQUEST),
+                LoginError::DatabaseError(e) => JsonErrorResponse::new(None, e, StatusCode::BAD_REQUEST),
+                LoginError::UserNotFound => JsonErrorResponse::new(None, "User not found".to_string(), StatusCode::NOT_FOUND),
+                LoginError::AuthenticationFailed => JsonErrorResponse::new(None, "Bad Auth".to_string(), StatusCode::BAD_REQUEST),
+                // Other cases...
+            }
+        }
+    }
+
+    // impl FromRisidual<Result<Infallible, >> {
+    //
+    // }
+    //
 }
 
 #[cfg(test)]

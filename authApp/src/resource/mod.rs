@@ -1,7 +1,7 @@
 pub mod customer {
-    use crate::domain::customer::{dto::CreateUser, LoginRequest, LoginRequestArguments};
+    use crate::domain::customer::{dto::CreateUser, LoginRequest, LoginRequestArguments, User};
     use crate::domain::infra::web::auth::verify_login;
-    use crate::domain::infra::web::{JsonErrorResponse, RealmFinder};
+    use crate::domain::infra::web::{JsonErrorResponse, LoginError, RealmFinder};
     use crate::service::customer_service::CustomerService;
     use crate::AppState;
     use actix_web::body::MessageBody;
@@ -13,71 +13,73 @@ pub mod customer {
     };
     use mysql::prelude::TextQuery;
     use serde::Deserialize;
+    use crate::domain::realm::RealmName;
+    use crate::repository::realm::RealmSettingProvider;
 
     #[derive(Deserialize)]
     pub struct UserId {
         user_id: String, // must match the path param name
     }
 
+    struct LoginUserData<'a> {
+        user: User,
+        realm_settings_provider: &'a RealmSettingProvider
+    }
+
+    type LoginErrorResponse = JsonErrorResponse<Option<String>>;
+
     pub async fn login(
         path_param: Path<UserId>,
         json: web::Json<LoginRequest>,
         req: HttpRequest,
-    ) -> Result<HttpResponse, JsonErrorResponse<Option<String>>> {
-        let header = req.headers().get_realm();
+    ) -> Result<HttpResponse, LoginErrorResponse> {
+        let realm = req.headers().get_realm().ok_or(LoginError::MissingRealmHeader)?;
         let login_request = json.0;
 
-        if let Some(realm) = header {
-            let data = req.app_data::<Data<AppState>>().unwrap().clone();
-            let t_realm = realm.clone();
-            let username = login_request.username.clone();
-            let db = data.execution_context.db.clone();
-            let rsp = data.realm_settings_provider.clone();
-            let db_res =
-                web::block(move || CustomerService::fetch_user_by_name(&username, &t_realm, &db))
-                    .await;
+        let login_user_data = fetch_user_data(&req, &realm, &login_request).await?;
+        let itr = login_user_data.realm_settings_provider.get_realm_salt_itr(realm.as_str());
 
-            match db_res {
-                Ok(user_res) => user_res
-                    .map(|user| {
-                        let itr = &rsp.get_realm_salt_itr(realm.as_str());
-                        let login_arg = LoginRequestArguments {
-                            login_request,
-                            user: user.clone(),
-                        };
-                        let is_ok = verify_login(&login_arg, realm, *itr);
+        authenticate_user(login_user_data, login_request, itr).await
 
-                        if is_ok {
-                            Ok(HttpResponse::Ok().json(&user))
-                        } else {
-                            Err(JsonErrorResponse::<Option<String>>::new(
-                                None,
-                                "Bad Auth".to_string(),
-                                StatusCode::BAD_REQUEST,
-                            ))
-                        }
-                    })
-                    .unwrap_or_else(|| {
-                        Err(JsonErrorResponse::<Option<String>>::new(
-                            None,
-                            "User not found".to_string(),
-                            StatusCode::NOT_FOUND,
-                        ))
-                    }),
-                Err(e) => Err(JsonErrorResponse::<Option<String>>::new(
-                    None,
-                    e.to_string(),
-                    StatusCode::BAD_REQUEST,
-                )),
+    }
+
+    async fn authenticate_user(login_user_data: LoginUserData, login_request: LoginRequest, itr: u32) -> Result<HttpResponse, LoginErrorResponse> {
+        let login_arg = LoginRequestArguments {
+            login_request,
+            user: login_user_data.user,
+        };
+        let is_ok = verify_login(&login_arg, realm, *itr);
+
+
+        todo!()
+    }
+
+    async fn fetch_user_data(req: &HttpRequest, realm: &RealmName, payload: &LoginRequest) -> Result<LoginUserData, LoginError> {
+        // Improved
+        let data = match req.app_data::<Data<AppState>>() {
+            Some(data) => data.clone(),
+            None => return Err(LoginError::AuthenticationFailed),
+        };
+
+        let db = data.execution_context.db.clone();
+        let username = payload.username.clone();
+        let rlm = realm.clone();
+        let result =
+            web::block(move || CustomerService::fetch_user_by_name(&username, &rlm, &db))
+                .await
+                .map_err(|e| LoginError::DatabaseError(e.to_string()))?;
+
+        match result {
+            None => { Err(LoginError::UserNotFound) }
+            Some(u) => {
+                Ok(LoginUserData {
+                    user: u,
+                    realm_settings_provider: data.realm_settings_provider.as_ref()
+                })
             }
-        } else {
-            Err(JsonErrorResponse::<Option<String>>::new(
-                None,
-                String::from("Must contain realm header"),
-                StatusCode::BAD_REQUEST,
-            ))
         }
     }
+
 
     pub async fn get(
         path_param: Path<UserId>,
@@ -177,6 +179,7 @@ pub mod customer {
             }
         }
     }
+
 
     pub async fn manual_hello() -> impl Responder {
         HttpResponse::Ok().body("Hey there!")
