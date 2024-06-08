@@ -25,6 +25,10 @@ pub mod customer {
         user: User,
         realm_settings_provider: &'a RealmSettingProvider
     }
+    
+    impl LoginUserData {
+        
+    }
 
     type LoginErrorResponse = JsonErrorResponse<Option<String>>;
 
@@ -48,7 +52,8 @@ pub mod customer {
             login_request,
             user: login_user_data.user,
         };
-        let is_ok = verify_login(&login_arg, realm, *itr);
+        login_user_data.
+        let is_ok = verify_login(&login_arg, login_user_data.r, *itr);
 
 
         todo!()
