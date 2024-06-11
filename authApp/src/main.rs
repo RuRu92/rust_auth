@@ -1,3 +1,5 @@
+#![allow(unused_imports)]
+
 use actix_web::{rt as actix_rt, web, App, HttpServer};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;

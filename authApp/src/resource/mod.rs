@@ -2,16 +2,15 @@ pub mod customer {
     use crate::domain::customer::{dto::CreateUser, LoginRequest, LoginRequestArguments, User};
     use crate::domain::infra::web::auth::verify_login;
     use crate::domain::infra::web::{JsonErrorResponse, LoginError, RealmFinder};
-    use crate::service::customer_service::CustomerService;
+    use crate::service::customer_service::{AuthenticatorService, CustomerService};
     use crate::AppState;
-    use actix_web::body::MessageBody;
-    use actix_web::dev::Service;
+    
+    
     use actix_web::http::StatusCode;
     use actix_web::web::{Data};
     use actix_web::{web, web::Path, HttpRequest, HttpResponse,
         Responder,
     };
-    use mysql::prelude::TextQuery;
     use serde::Deserialize;
     use crate::domain::realm::RealmName;
     use crate::repository::realm::RealmSettingProvider;
@@ -23,13 +22,10 @@ pub mod customer {
 
     struct LoginUserData<'a> {
         user: User,
+        realm: RealmName,
         realm_settings_provider: &'a RealmSettingProvider
     }
     
-    impl LoginUserData {
-        
-    }
-
     type LoginErrorResponse = JsonErrorResponse<Option<String>>;
 
     pub async fn login(
@@ -40,31 +36,42 @@ pub mod customer {
         let realm = req.headers().get_realm().ok_or(LoginError::MissingRealmHeader)?;
         let login_request = json.0;
 
-        let login_user_data = fetch_user_data(&req, &realm, &login_request).await?;
-        let itr = login_user_data.realm_settings_provider.get_realm_salt_itr(realm.as_str());
+        let data = match req.app_data::<Data<AppState>>() {
+            Some(data) => data.clone(),
+            None => return  Err(LoginErrorResponse::new(
+                None,
+                "Failed to find realm".to_string(),
+                StatusCode::NOT_FOUND,
+            )),
+        };
 
-        authenticate_user(login_user_data, login_request, itr).await
+        let login_user_data = fetch_user_data(&data, &realm, &login_request).await?;
+
+        authenticate_user(login_user_data, login_request).await
 
     }
 
-    async fn authenticate_user(login_user_data: LoginUserData, login_request: LoginRequest, itr: u32) -> Result<HttpResponse, LoginErrorResponse> {
+    async fn authenticate_user<'a>(login_user_data: LoginUserData<'a>, login_request: LoginRequest) -> Result<HttpResponse, LoginErrorResponse> {
         let login_arg = LoginRequestArguments {
             login_request,
             user: login_user_data.user,
         };
-        login_user_data.
-        let is_ok = verify_login(&login_arg, login_user_data.r, *itr);
+        let itr = login_user_data.realm_settings_provider.get_realm_salt_itr(login_user_data.realm.as_str());
+        let is_ok = verify_login(&login_arg, login_user_data.realm, itr);
 
-
-        todo!()
+        if is_ok {
+            let token = AuthenticatorService::initialise_token(&login_arg.user);
+            Ok(HttpResponse::Ok().json(token))
+        } else {
+            Err(LoginErrorResponse::new(
+                None,
+                "Authentication failed".to_string(),
+                StatusCode::UNAUTHORIZED,
+            ))
+        }
     }
 
-    async fn fetch_user_data(req: &HttpRequest, realm: &RealmName, payload: &LoginRequest) -> Result<LoginUserData, LoginError> {
-        // Improved
-        let data = match req.app_data::<Data<AppState>>() {
-            Some(data) => data.clone(),
-            None => return Err(LoginError::AuthenticationFailed),
-        };
+    async fn fetch_user_data<'a>(data: &'a Data<AppState>, realm: &RealmName, payload: &LoginRequest) -> Result<LoginUserData<'a>, LoginError> {
 
         let db = data.execution_context.db.clone();
         let username = payload.username.clone();
@@ -79,6 +86,7 @@ pub mod customer {
             Some(u) => {
                 Ok(LoginUserData {
                     user: u,
+                    realm: realm.clone(),
                     realm_settings_provider: data.realm_settings_provider.as_ref()
                 })
             }
@@ -99,7 +107,7 @@ pub mod customer {
         match db_res {
             Ok(user_res) => user_res
                 .map(|user| Ok(HttpResponse::Ok().json(user.unwrap())))
-                .unwrap_or_else(|e| {
+                .unwrap_or_else(|_| {
                     Err(JsonErrorResponse::<Option<String>>::new(
                         None,
                         "User not found".to_string(),
@@ -131,7 +139,7 @@ pub mod customer {
         match db_res {
             Ok(user_res) => user_res
                 .map(|users| Ok(HttpResponse::Ok().json(users)))
-                .unwrap_or_else(|e| {
+                .unwrap_or_else(|_| {
                     Err(JsonErrorResponse::<Option<String>>::new(
                         None,
                         "User not found".to_string(),
@@ -194,38 +202,36 @@ pub mod customer {
 pub mod admin {}
 
 //
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     use actix_web::{http, test, web::Data, App};
-//     use crate::AppState;
-//
-//
-//     // Imports depending on the structure of your project
-//
-//     #[actix_web::test]
-//     pub async fn test_login() {
-//         n
-//         let mut app = test::init_service(
-//             App::new()
-//                 .data(Data::new(AppState {
-//                     realm_settings_provider:
-//                 }))
-//                 .route("/{id}", web::post().to(login))
-//         ).await;
-//
-//         let req = test::TestRequest::post()
-//             .uri("/test_user_id")
-//             .header(http::header::CONTENT_TYPE, "application/json")
-//             .header("Realm", "test_realm")
-//             .set_json(&LoginRequest {
-//                 // Fill with example data
-//             })
-//             .to_request();
-//
-//         let resp: Result<HttpResponse, JsonErrorResponse<Option<String>>> = test::call_service(&mut app, req).await;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use actix_web::{http, test, web::Data, App};
+    use crate::AppState;
 
-// Add assertions depending on what you expect the function to return
-// for the example test data
-// }
-// }
+
+    // Imports depending on the structure of your project
+
+    #[actix_web::test]
+    pub async fn test_login() {
+        let mut app = test::init_service(
+            App::new()
+                .data(Data::new(AppState {
+                    realm_settings_provider:
+                }))
+                .route("/{id}", web::post().to(login))
+        ).await;
+
+        let req = test::TestRequest::post()
+            .uri("/test_user_id")
+            .header(http::header::CONTENT_TYPE, "application/json")
+            .header("Realm", "test_realm")
+            .set_json(&LoginRequest {
+                // Fill with example data
+            })
+            .to_request();
+
+        let resp: Result<HttpResponse, JsonErrorResponse<Option<String>>> = test::call_service(&mut app, req).await;
+    }
+}
+
+

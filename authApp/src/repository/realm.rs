@@ -18,7 +18,7 @@ impl RealmSettingProvider {
 
         let mut realm_settings = HashMap::new();
         for r in realms {
-            &realm_settings.insert(
+            let _ = &realm_settings.insert(
                 r.to_string(),
                 RwLock::new(InternalRealmSettings {
                     is_confirmation_required: false,

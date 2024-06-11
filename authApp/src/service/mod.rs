@@ -16,7 +16,7 @@ pub mod customer_service {
     pub struct AuthenticatorService {}
 
     impl AuthenticatorService {
-        pub fn initialise_token(data: User) -> String {
+        pub fn initialise_token(data: &User) -> String {
             "a".parse().unwrap()
         }
     }

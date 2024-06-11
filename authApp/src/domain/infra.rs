@@ -129,7 +129,7 @@ pub mod web {
             JsonErrorResponse {
                 body: None,
                 message,
-                status_code: Default::default(),
+                status_code,
             }
         }
     }
