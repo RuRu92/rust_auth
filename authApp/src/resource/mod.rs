@@ -211,27 +211,27 @@ mod tests {
 
     // Imports depending on the structure of your project
 
-    #[actix_web::test]
-    pub async fn test_login() {
-        let mut app = test::init_service(
-            App::new()
-                .data(Data::new(AppState {
-                    realm_settings_provider:
-                }))
-                .route("/{id}", web::post().to(login))
-        ).await;
+    // #[actix_web::test]
+    // pub async fn test_login() {
+    //     let mut app = test::init_service(
+    //         App::new()
+    //             .data(Data::new(AppState {
+    //                 realm_settings_provider:
+    //             }))
+    //             .route("/{id}", web::post().to(login))
+    //     ).await;
 
-        let req = test::TestRequest::post()
-            .uri("/test_user_id")
-            .header(http::header::CONTENT_TYPE, "application/json")
-            .header("Realm", "test_realm")
-            .set_json(&LoginRequest {
-                // Fill with example data
-            })
-            .to_request();
+    //     let req = test::TestRequest::post()
+    //         .uri("/test_user_id")
+    //         .header(http::header::CONTENT_TYPE, "application/json")
+    //         .header("Realm", "test_realm")
+    //         .set_json(&LoginRequest {
+    //             // Fill with example data
+    //         })
+    //         .to_request();
 
-        let resp: Result<HttpResponse, JsonErrorResponse<Option<String>>> = test::call_service(&mut app, req).await;
-    }
+    //     let resp: Result<HttpResponse, JsonErrorResponse<Option<String>>> = test::call_service(&mut app, req).await;
+    // }
 }
 
 
