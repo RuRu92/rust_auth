@@ -39,20 +39,33 @@ pub mod web {
 
     pub mod auth {
         use crate::domain::customer::{LoginRequest, LoginRequestArguments, User};
-        use crate::domain::realm::{RealmName, UserRealmSettings};
+        use crate::domain::realm::{Realm, RealmName, UserRealmSettings};
+        use actix_web::body::BoxBody;
+        use actix_web::http::header::ContentType;
+        use actix_web::http::StatusCode;
+        use actix_web::{HttpResponse, ResponseError};
         use data_encoding::HEXUPPER;
+        use jsonwebtoken::errors::Error;
+        use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+        use mysql::serde_json;
         use ring::digest::SHA256;
         use ring::pbkdf2 as pbk;
         use ring::rand::SystemRandom;
+        use serde::{Deserialize, Serialize};
+        use std::f32::consts::E;
+        use std::fmt::{self, Debug, Display, Formatter};
         use std::num::NonZeroU32;
+        use chrono::{DateTime, Utc}; 
 
         type Token = String;
 
+        #[derive(Debug, Serialize, Deserialize)]
         struct AppToken {
             username: String,
             password: String,
             realm_settings: UserRealmSettings,
             realm: RealmName,
+            expiry: DateTime<Utc>,
         }
 
         pub fn verify_login(args: &LoginRequestArguments, realm: RealmName, iter: u32) -> bool {
@@ -72,28 +85,46 @@ pub mod web {
             verified.is_ok()
         }
 
+        trait Authorizer {
+        //    type WebToken;
+           fn get_auth_token(claim: &AppToken) -> Token;
+        }
         struct AppAuthorizer {}
 
-        // impl Authorizer for AppAuthorizer {
-        //     fn generate_user_auth_token() -> Token {
-        //
-        //     }
-        //
-        //     fn mark_header(&self) {
-        //         todo!()
-        //     }
-        //
-        //     fn to_user_realm_settings(&self) -> Option<UserRealmSettings> {
-        //         None
-        //     }
-        // }
+        impl Authorizer for AppAuthorizer {
+            // type WebToken = String;
+            fn get_auth_token(claim: &AppToken) -> Token {   
+            let mut header = Header::new(Algorithm::HS512);
+            return encode(&header, &claim, &EncodingKey::from_secret("secret".as_ref())).unwrap();
+            }
+        }
 
-        trait Authorizer {
-            fn generate_user_auth_token();
+        #[cfg(test)]
+        mod tests {
+            use crate::domain::realm::{Realm, RealmName, RealmSettings, UserRealmSettings};
+            use actix_web::http::StatusCode;
+            use jsonwebtoken::EncodingKey;
+            use std::time::Duration;
+            use crate::domain::infra::web::auth::{AppToken, Authorizer, AppAuthorizer};
 
-            fn mark_header(&self);
+            #[test]
+            fn test_auth_token() {
+                let realm = RealmName::from("test");
+                let realm_settings = UserRealmSettings {
+                    is_confirmation_required: false,
+                };
+                let claim = AppToken {
+                    username: "ruru".to_string(),
+                    password: "passw0rd".to_string(),
+                    realm_settings,
+                    realm,
+                    expiry: chrono::Utc::now() + Duration::from_secs(60),
+                };
 
-            fn to_user_realm_settings(&self) -> UserRealmSettings;
+                let token = AppAuthorizer::get_auth_token(&claim);
+                print!("Token - {}\n", token);
+                assert_eq!(token.len(), 268);
+            }
         }
     }
 
@@ -203,36 +234,3 @@ pub mod web {
     //
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use mysql::chrono;
-    use mysql::chrono::Utc;
-    use std::fmt::Error;
-
-    #[test]
-    fn test_generate_token() {
-        // let token = AppToken {
-        //     password: "password".to_string(),
-        //     username: "RuRu".to_string(),
-        //     realm: "rj.wire".to_string(),
-        //     realm_settings: UserRealmSettings {
-        //         is_confirmation_required: true
-        //     },
-        // };
-        //
-        // let expiration = Utc::now()
-        //     .checked_add_signed(chrono::Duration::seconds(60))
-        //     .expect("valid timestamp")
-        //     .timestamp();
-        //
-        // let header = Header::new(Algorithm::HS512);
-        // let t = encode(&header, &token, &EncodingKey::from_secret(b"secret"))
-        //     .map_err(|_| Error::JWTTokenCreationError);
-        //
-        // match t {
-        //     Ok(val) => println!("val: {}", val),
-        //     Err(_) => println!("fail")
-        // }
-    }
-}

@@ -1,4 +1,5 @@
 use std::time::Duration;
+use serde::{Deserialize, Serialize};
 use strum_macros::Display;
 
 type ID = String;
@@ -24,6 +25,7 @@ pub trait RealmSettings {
     fn get_password_reset_token_duration(&self) -> Duration;
 }
 
+#[derive(Debug, Serialize, Deserialize)]
 pub struct UserRealmSettings {
     pub is_confirmation_required: bool,
 }

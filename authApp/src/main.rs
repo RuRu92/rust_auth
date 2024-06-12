@@ -1,4 +1,5 @@
 #![allow(unused_imports)]
+#![allow(dead_code)]
 
 use actix_web::{rt as actix_rt, web, App, HttpServer};
 use serde::{Deserialize, Serialize};

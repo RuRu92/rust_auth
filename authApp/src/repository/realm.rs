@@ -92,7 +92,7 @@ impl RealmSettingProvider {
     }
 
     pub fn reload(&self) -> &Self {
-        let mut settings = &self.settings.clone();
+        let settings = &self.settings.clone();
         let mut rng = rand::thread_rng();
 
         for (realm, value) in settings.as_ref().iter() {
