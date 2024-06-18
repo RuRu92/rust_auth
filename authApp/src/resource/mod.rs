@@ -4,16 +4,13 @@ pub mod customer {
     use crate::domain::infra::web::{JsonErrorResponse, LoginError, RealmFinder};
     use crate::service::customer_service::{AuthenticatorService, CustomerService};
     use crate::AppState;
-    
-    
-    use actix_web::http::StatusCode;
-    use actix_web::web::{Data};
-    use actix_web::{web, web::Path, HttpRequest, HttpResponse,
-        Responder,
-    };
-    use serde::Deserialize;
+
     use crate::domain::realm::RealmName;
     use crate::repository::realm::RealmSettingProvider;
+    use actix_web::http::StatusCode;
+    use actix_web::web::Data;
+    use actix_web::{web, web::Path, HttpRequest, HttpResponse, Responder};
+    use serde::Deserialize;
 
     #[derive(Deserialize)]
     pub struct UserId {
@@ -23,9 +20,9 @@ pub mod customer {
     struct LoginUserData<'a> {
         user: User,
         realm: RealmName,
-        realm_settings_provider: &'a RealmSettingProvider
+        realm_settings_provider: &'a RealmSettingProvider,
     }
-    
+
     type LoginErrorResponse = JsonErrorResponse<Option<String>>;
 
     pub async fn login(
@@ -33,30 +30,39 @@ pub mod customer {
         json: web::Json<LoginRequest>,
         req: HttpRequest,
     ) -> Result<HttpResponse, LoginErrorResponse> {
-        let realm = req.headers().get_realm().ok_or(LoginError::MissingRealmHeader)?;
+        let realm = req
+            .headers()
+            .get_realm()
+            .ok_or(LoginError::MissingRealmHeader)?;
         let login_request = json.0;
 
         let data = match req.app_data::<Data<AppState>>() {
             Some(data) => data.clone(),
-            None => return  Err(LoginErrorResponse::new(
-                None,
-                "Failed to find realm".to_string(),
-                StatusCode::NOT_FOUND,
-            )),
+            None => {
+                return Err(LoginErrorResponse::new(
+                    None,
+                    "Failed to find realm".to_string(),
+                    StatusCode::NOT_FOUND,
+                ))
+            }
         };
 
         let login_user_data = fetch_user_data(&data, &realm, &login_request).await?;
 
         authenticate_user(login_user_data, login_request).await
-
     }
 
-    async fn authenticate_user<'a>(login_user_data: LoginUserData<'a>, login_request: LoginRequest) -> Result<HttpResponse, LoginErrorResponse> {
+    async fn authenticate_user<'a>(
+        login_user_data: LoginUserData<'a>,
+        login_request: LoginRequest,
+    ) -> Result<HttpResponse, LoginErrorResponse> {
         let login_arg = LoginRequestArguments {
             login_request,
             user: login_user_data.user,
         };
-        let itr = login_user_data.realm_settings_provider.get_realm_salt_itr(login_user_data.realm.as_str());
+        let itr = login_user_data
+            .realm_settings_provider
+            .get_realm_salt_itr(login_user_data.realm.as_str());
         let is_ok = verify_login(&login_arg, login_user_data.realm, itr);
 
         if is_ok {
@@ -71,28 +77,27 @@ pub mod customer {
         }
     }
 
-    async fn fetch_user_data<'a>(data: &'a Data<AppState>, realm: &RealmName, payload: &LoginRequest) -> Result<LoginUserData<'a>, LoginError> {
-
+    async fn fetch_user_data<'a>(
+        data: &'a Data<AppState>,
+        realm: &RealmName,
+        payload: &LoginRequest,
+    ) -> Result<LoginUserData<'a>, LoginError> {
         let db = data.execution_context.db.clone();
         let username = payload.username.clone();
         let rlm = realm.clone();
-        let result =
-            web::block(move || CustomerService::fetch_user_by_name(&username, &rlm, &db))
-                .await
-                .map_err(|e| LoginError::DatabaseError(e.to_string()))?;
+        let result = web::block(move || CustomerService::fetch_user_by_name(&username, &rlm, &db))
+            .await
+            .map_err(|e| LoginError::DatabaseError(e.to_string()))?;
 
         match result {
-            None => { Err(LoginError::UserNotFound) }
-            Some(u) => {
-                Ok(LoginUserData {
-                    user: u,
-                    realm: realm.clone(),
-                    realm_settings_provider: data.realm_settings_provider.as_ref()
-                })
-            }
+            None => Err(LoginError::UserNotFound),
+            Some(u) => Ok(LoginUserData {
+                user: u,
+                realm: realm.clone(),
+                realm_settings_provider: data.realm_settings_provider.as_ref(),
+            }),
         }
     }
-
 
     pub async fn get(
         path_param: Path<UserId>,
@@ -193,7 +198,6 @@ pub mod customer {
         }
     }
 
-
     pub async fn manual_hello() -> impl Responder {
         HttpResponse::Ok().body("Hey there!")
     }
@@ -205,9 +209,8 @@ pub mod admin {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use actix_web::{http, test, web::Data, App};
     use crate::AppState;
-
+    use actix_web::{http, test, web::Data, App};
 
     // Imports depending on the structure of your project
 
@@ -233,5 +236,3 @@ mod tests {
     //     let resp: Result<HttpResponse, JsonErrorResponse<Option<String>>> = test::call_service(&mut app, req).await;
     // }
 }
-
-

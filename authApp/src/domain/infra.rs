@@ -11,17 +11,27 @@ use std::fmt::{Debug, Display, Formatter};
 use strum_macros::Display;
 
 pub mod web {
-    use std::convert::Infallible;
-    use crate::domain::realm::{Realm, RealmName};
+    use crate::domain::customer::{LoginRequest, LoginRequestArguments, User};
+    use crate::domain::realm::{Realm, RealmName, UserRealmSettings};
     use actix_web::body::BoxBody;
     use actix_web::http::header::{ContentType, HeaderMap, HeaderValue};
     use actix_web::http::StatusCode;
+    use actix_web::web::Json;
     use actix_web::{HttpResponse, ResponseError};
+    use chrono::{DateTime, Utc};
+    use data_encoding::HEXUPPER;
+    use jsonwebtoken::errors::Error;
+    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
     use mysql::serde_json;
-    use serde::Serialize;
+    use ring::digest::SHA256;
+    use ring::pbkdf2 as pbk;
+    use ring::rand::SystemRandom;
+    use serde::{Deserialize, Serialize};
+    use std::convert::Infallible;
+    use std::f32::consts::E;
     use std::fmt;
     use std::fmt::{Debug, Display, Formatter};
-    use actix_web::web::Json;
+    use std::num::NonZeroU32;
 
     pub trait RealmFinder {
         type Realm;
@@ -38,24 +48,15 @@ pub mod web {
     }
 
     pub mod auth {
-        use crate::domain::customer::{LoginRequest, LoginRequestArguments, User};
-        use crate::domain::realm::{Realm, RealmName, UserRealmSettings};
-        use actix_web::body::BoxBody;
-        use actix_web::http::header::ContentType;
-        use actix_web::http::StatusCode;
-        use actix_web::{HttpResponse, ResponseError};
+        use crate::domain::customer::LoginRequestArguments;
+        use crate::domain::realm::{RealmName, UserRealmSettings};
         use data_encoding::HEXUPPER;
-        use jsonwebtoken::errors::Error;
         use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
-        use mysql::serde_json;
+        use serde::{Deserialize, Serialize};
+        use std::num::NonZeroU32;
         use ring::digest::SHA256;
         use ring::pbkdf2 as pbk;
-        use ring::rand::SystemRandom;
-        use serde::{Deserialize, Serialize};
-        use std::f32::consts::E;
-        use std::fmt::{self, Debug, Display, Formatter};
-        use std::num::NonZeroU32;
-        use chrono::{DateTime, Utc}; 
+        use ring::rand::SecureRandom;
 
         type Token = String;
 
@@ -65,7 +66,7 @@ pub mod web {
             password: String,
             realm_settings: UserRealmSettings,
             realm: RealmName,
-            expiry: DateTime<Utc>,
+            expiry: i64,
         }
 
         pub fn verify_login(args: &LoginRequestArguments, realm: RealmName, iter: u32) -> bool {
@@ -86,26 +87,32 @@ pub mod web {
         }
 
         trait Authorizer {
-        //    type WebToken;
-           fn get_auth_token(claim: &AppToken) -> Token;
+            //    type WebToken;
+            fn get_auth_token(claim: &AppToken) -> Token;
         }
         struct AppAuthorizer {}
 
         impl Authorizer for AppAuthorizer {
             // type WebToken = String;
-            fn get_auth_token(claim: &AppToken) -> Token {   
-            let mut header = Header::new(Algorithm::HS512);
-            return encode(&header, &claim, &EncodingKey::from_secret("secret".as_ref())).unwrap();
+            fn get_auth_token(claim: &AppToken) -> Token {
+                let header = Header::new(Algorithm::HS512);
+                return encode(
+                    &header,
+                    &claim,
+                    &EncodingKey::from_secret("secret".as_ref()),
+                )
+                .unwrap();
             }
         }
 
         #[cfg(test)]
         mod tests {
+            use crate::domain::infra::web::auth::{AppAuthorizer, AppToken, Authorizer};
             use crate::domain::realm::{Realm, RealmName, RealmSettings, UserRealmSettings};
             use actix_web::http::StatusCode;
+            use chrono::{Days, Utc};
             use jsonwebtoken::EncodingKey;
             use std::time::Duration;
-            use crate::domain::infra::web::auth::{AppToken, Authorizer, AppAuthorizer};
 
             #[test]
             fn test_auth_token() {
@@ -113,12 +120,15 @@ pub mod web {
                 let realm_settings = UserRealmSettings {
                     is_confirmation_required: false,
                 };
+
+                let dt = Utc::now().checked_add_days(Days::new(90));
+
                 let claim = AppToken {
                     username: "ruru".to_string(),
                     password: "passw0rd".to_string(),
                     realm_settings,
                     realm,
-                    expiry: chrono::Utc::now() + Duration::from_secs(60),
+                    expiry: dt.unwrap().timestamp(),
                 };
 
                 let token = AppAuthorizer::get_auth_token(&claim);
@@ -202,7 +212,6 @@ pub mod web {
     trait ApplicationError {
         type Error;
         fn to_json_response(self) -> JsonErrorResponse<Self::Error>;
-
     }
 
     #[derive(Debug)]
@@ -218,12 +227,27 @@ pub mod web {
     impl From<LoginError> for JsonErrorResponse<Option<String>> {
         fn from(err: LoginError) -> Self {
             match err {
-                LoginError::MissingAppState => JsonErrorResponse::new(None, "App state not found".to_string(), StatusCode::INTERNAL_SERVER_ERROR),
-                LoginError::MissingRealmHeader => JsonErrorResponse::new(None, "Must contain realm header".to_string(), StatusCode::BAD_REQUEST),
-                LoginError::DatabaseError(e) => JsonErrorResponse::new(None, e, StatusCode::BAD_REQUEST),
-                LoginError::UserNotFound => JsonErrorResponse::new(None, "User not found".to_string(), StatusCode::NOT_FOUND),
-                LoginError::AuthenticationFailed => JsonErrorResponse::new(None, "Bad Auth".to_string(), StatusCode::BAD_REQUEST),
-                // Other cases...
+                LoginError::MissingAppState => JsonErrorResponse::new(
+                    None,
+                    "App state not found".to_string(),
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                ),
+                LoginError::MissingRealmHeader => JsonErrorResponse::new(
+                    None,
+                    "Must contain realm header".to_string(),
+                    StatusCode::BAD_REQUEST,
+                ),
+                LoginError::DatabaseError(e) => {
+                    JsonErrorResponse::new(None, e, StatusCode::BAD_REQUEST)
+                }
+                LoginError::UserNotFound => JsonErrorResponse::new(
+                    None,
+                    "User not found".to_string(),
+                    StatusCode::NOT_FOUND,
+                ),
+                LoginError::AuthenticationFailed => {
+                    JsonErrorResponse::new(None, "Bad Auth".to_string(), StatusCode::BAD_REQUEST)
+                } // Other cases...
             }
         }
     }
@@ -233,4 +257,3 @@ pub mod web {
     // }
     //
 }
-

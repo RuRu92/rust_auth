@@ -27,7 +27,7 @@ fn customer_resource() -> Scope {
             web::resource("")
                 .route(web::post().to(customer::create))
                 .route(web::get().to(customer::get_all)),
-        )
+        );
 }
 
 fn realm_resource() -> Scope {
@@ -36,8 +36,7 @@ fn realm_resource() -> Scope {
         .service(
             web::resource("/{realm}")
                 .route(web::put().to(customer::login))
-                .route(web::get().to(customer::get))
-                // .route(web::put().to(customer::update)),
+                .route(web::get().to(customer::get)), // .route(web::put().to(customer::update)),
         )
         .service(
             web::resource("")
