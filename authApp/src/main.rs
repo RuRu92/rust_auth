@@ -11,6 +11,7 @@ mod repository;
 mod resource;
 mod route;
 mod service;
+mod app;
 
 const URL: &str = "mysql://root:password@localhost:3306/auth";
 

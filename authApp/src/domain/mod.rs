@@ -92,11 +92,11 @@ pub mod customer {
     pub mod dto {
         use crate::domain::customer::Address;
         use crate::domain::realm::{Realm, RealmName};
-        use data_encoding::HEXUPPER;
-        use ring::digest::SHA256;
-        use ring::pbkdf2 as pbk;
-        use ring::rand::SystemRandom;
+        use pbkdf2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
+        use pbkdf2::Pbkdf2;
+        use rand::rngs::OsRng;
         use serde::{Deserialize, Serialize};
+        use crate::app::Error;
 
         #[derive(Serialize, Deserialize, Clone, Debug)]
         pub struct CreateUser {
@@ -109,18 +109,16 @@ pub mod customer {
         }
 
         impl CreateUser {
-            pub fn hash_password(&mut self, realm: &RealmName, n: u32) {
-                let salt = format!("{}|{}", &self.username, realm).into_bytes();
-                let mut key = [0u8; 32];
-                pbk::derive(
-                    pbk::PBKDF2_HMAC_SHA256,
-                    std::num::NonZeroU32::new(n).unwrap(),
-                    &salt,
-                    self.password.as_bytes(),
-                    &mut key,
-                );
-                self.password = HEXUPPER.encode(&key);
-                println!("Hashed pwd to: {}", &self.password)
+            pub fn hash_password(&mut self, realm: &RealmName) -> Result<String, Error> {
+                let salt_format = format!("{}|{}", &self.username, realm).into_bytes();
+                let salt = SaltString::encode_b64(salt_format.as_slice()).unwrap();
+                match Pbkdf2.hash_password(self.password.as_bytes(), &salt) {
+                    Ok(x) => {
+                        println!("Hashed pwd to: {}", &self.password);
+                        Ok(x.to_string())
+                    }
+                    Err(_) => Err(Error::PasswordHashing)
+                }
             }
         }
 
@@ -136,12 +134,10 @@ mod test {
     use crate::domain::customer::dto::CreateUser;
     use crate::domain::customer::Address;
     use crate::domain::realm::RealmName;
-    use ring::digest::SHA256;
-    use ring::pbkdf2 as pbk;
-    use ring::rand::SystemRandom;
+    use pbkdf2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
+    use pbkdf2::Pbkdf2;
+    use rand::rngs::OsRng;
     use std::num::NonZeroU32;
-
-    use data_encoding::HEXUPPER;
 
     #[test]
     fn test_hashing_password() {
@@ -164,31 +160,13 @@ mod test {
 
         println!("Current Pass: {}", &current_pass);
         let salt = format!("{}|{}", &user.username, realm).into_bytes();
-        user.hash_password(&realm, 4026);
-        println!("Hashed Pass: {}", &user.password);
+        let password_hash  =  user.hash_password(&realm).unwrap();
 
-        // assert_ne!(user.password, current_pass);
-        let decoded_str = HEXUPPER.decode(user.password.as_bytes()).unwrap();
+        println!("Hashed Pass: {}", &password_hash);
 
-        let should_succeed = pbk::verify(
-            pbk::PBKDF2_HMAC_SHA256,
-            iter,
-            &salt,
-            current_pass.as_bytes(),
-            &decoded_str,
-        );
+        // Verify password against PHC string
+        let parsed_hash = PasswordHash::new(&password_hash).unwrap();
+        assert!(Pbkdf2.verify_password(&current_pass.as_bytes(), &parsed_hash).is_ok());
 
-        assert!(should_succeed.is_ok());
-
-        let wrong_password = "Definitely not the correct password";
-        let should_fail = pbk::verify(
-            pbk::PBKDF2_HMAC_SHA256,
-            iter,
-            &salt,
-            wrong_password.as_bytes(),
-            &user.password.as_bytes(),
-        );
-
-        assert!(!should_fail.is_ok());
     }
 }

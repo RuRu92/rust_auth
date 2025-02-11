@@ -4,7 +4,6 @@ use actix_web::http::header::{ContentType, HeaderName, HeaderValue, CONTENT_TYPE
 use actix_web::http::StatusCode;
 use actix_web::{HttpResponse, ResponseError};
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
-use mysql::serde_json;
 use serde::{Deserialize, Serialize, Serializer};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
@@ -22,7 +21,6 @@ pub mod web {
     use data_encoding::HEXUPPER;
     use jsonwebtoken::errors::Error;
     use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
-    use mysql::serde_json;
     use ring::digest::SHA256;
     use ring::pbkdf2 as pbk;
     use ring::rand::SystemRandom;
