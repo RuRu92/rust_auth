@@ -2,7 +2,6 @@ pub mod infra;
 pub mod realm;
 
 pub mod customer {
-    use mysql::prelude::{ConvIr, FromValue};
     use mysql::Value;
     use serde::{Deserialize, Serialize};
     use std::fmt::{Display, Formatter as FMT_Formatter};

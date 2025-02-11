@@ -13,6 +13,7 @@ serde = { version = "1", features = ["derive"] }
 #diesel = { version = "1.4.4", features = ["mysql"] }
 #diesel = { version = "1.4.4", features = ["mysql"] }
 mysql = "*"
+mysql_common = "0.34.1"
 dotenv = "0.15.0"
 uuid = { version = "1.3.2", features = ["v4"] }
 strum = "0.25.0"
