@@ -55,6 +55,7 @@ pub mod web {
         use ring::digest::SHA256;
         use ring::pbkdf2 as pbk;
         use ring::rand::SecureRandom;
+        use mysql_common::serde_json;
 
         type Token = String;
 
@@ -99,7 +100,7 @@ pub mod web {
                     &claim,
                     &EncodingKey::from_secret("secret".as_ref()),
                 )
-                .unwrap();
+                    .unwrap();
             }
         }
 

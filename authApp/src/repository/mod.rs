@@ -1,3 +1,4 @@
+use log::log;
 use crate::domain::customer::dto::{CreateUser, UserMetadata};
 use crate::domain::customer::{Address, Role, User, UserWithAddress};
 use crate::domain::realm::RealmName;
@@ -5,7 +6,9 @@ use crate::Principal;
 use mysql::error::Result;
 use mysql::prelude::Queryable;
 use mysql::{params, Transaction};
+use mysql_common::prelude::FromRow;
 use uuid::Uuid;
+use crate::app::{APIError, APIResult};
 
 pub mod realm;
 
@@ -39,22 +42,48 @@ impl UserStorage {
                     WHERE user_id = :user_id",
             params! { "user_id" => user_id },
         )
-        .map(|row| {
-            //Unpack Option
-            row.map(|(user_id, name, password, role)| User {
-                user_id,
-                username: name,
-                hashed_pass: password,
-                role,
+            .map(|row| {
+                //Unpack Option
+                row.map(|(user_id, name, password, role)| User {
+                    user_id,
+                    username: name,
+                    hashed_pass: password,
+                    role,
+                })
             })
-        })
+    }
+
+    pub fn get_users(tx: &mut Transaction) -> APIResult<Vec<UserWithAddress>> {
+        tx.query_map(
+            "SELECT \
+            u.user_id, \
+            u.name,\
+            u.role, \
+            a.street, \
+            a.city, \
+            a.post_code, \
+            a.country \
+            FROM user u \
+            INNER JOIN address a on u.user_id = a.user_id ",
+            |(id, name, role, street, city, post_code, country)| UserWithAddress {
+                user_id: id,
+                role,
+                username: name,
+                address: Address {
+                    street,
+                    country,
+                    city,
+                    post_code,
+                },
+            },
+        )
     }
 
     pub fn get_user_by_name(
         username: &String,
         realm: &RealmName,
         tx: &mut Transaction,
-    ) -> Result<Option<User>> {
+    ) -> APIResult<Option<User>, mysql::Error> {
         tx.exec_first(
             "SELECT \
                     user_id, \
@@ -69,15 +98,15 @@ impl UserStorage {
                 "realm" => realm
             },
         )
-        .map(|row| {
-            //Unpack Option
-            row.map(|(user_id, name, password, role)| User {
-                user_id,
-                username: name,
-                hashed_pass: password,
-                role,
+            .map(|row| {
+                //Unpack Option
+                row.map(|(user_id, name, password, role)| User {
+                    user_id,
+                    username: name,
+                    hashed_pass: password,
+                    role,
+                })
             })
-        })
     }
 
     pub fn get_users(tx: &mut Transaction) -> Result<Vec<UserWithAddress>> {
@@ -112,7 +141,7 @@ impl Repository<User> for UserStorage {
     type UpdateMetaData = UserMetadata;
     type ID = String;
 
-    fn create_from(data: Self::CreationData, tx: &mut Transaction) -> Result<Self::ID> {
+    fn create_from(data: Self::CreationData, tx: &mut Transaction) -> APIResult<Self::ID> {
         let user_id = Uuid::new_v4().to_string();
 
         tx.exec_drop(
@@ -127,7 +156,7 @@ impl Repository<User> for UserStorage {
             "email" => &data.email,
             },
         )
-        .expect("Failed to create user");
+            .expect("Failed to create user");
 
         return Ok(user_id);
     }
@@ -141,7 +170,7 @@ impl Repository<User> for UserStorage {
             "DELETE FROM USER WHERE user_id = :user_id",
             params! { "user_id" => id },
         )
-        .expect("Failed to delete user");
+            .expect("Failed to delete user");
         // match to print logs
     }
 }
@@ -163,7 +192,7 @@ impl Repository<Address> for AddressStorage {
     type UpdateMetaData = (Option<Address>, String);
     type ID = String;
 
-    fn create_from(data: Self::CreationData, tx: &mut Transaction) -> Result<Self::ID> {
+    fn create_from(data: Self::CreationData, tx: &mut Transaction) -> APIResult<Self::ID> {
         let address = &data.0;
         let user_id: String = data.1;
         let address_id = Uuid::new_v4().to_string();
@@ -194,9 +223,9 @@ impl Repository<Address> for AddressStorage {
             "country" => &address.country,
             "country_code" => "UK".to_string() },
         )
-        .expect("Failed to insert user address");
+            .expect("Failed to insert user address");
 
-        return Ok(address_id);
+        Ok(address_id)
     }
 
     fn update(data: Self::UpdateMetaData, tx: &mut Transaction) -> bool {
@@ -240,6 +269,6 @@ impl Repository<Address> for AddressStorage {
             "DELETE FROM ADDRESS WHERE address_id = :address_id",
             ("address_id", id),
         )
-        .expect("Failed to delete address");
+            .expect("Failed to delete address");
     }
 }

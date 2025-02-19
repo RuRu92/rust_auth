@@ -49,7 +49,8 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         println!("server started");
         // realm_updater.join();
-        App::new().app_data(app_data.clone()).configure(routes)
+        App::new()
+            .app_data(app_data.clone()).configure(routes)
     })
     .bind("127.0.0.1:9090")?
     .run()

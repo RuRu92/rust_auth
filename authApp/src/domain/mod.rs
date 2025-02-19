@@ -6,12 +6,77 @@ pub mod customer {
     use serde::{Deserialize, Serialize};
     use std::fmt::{Display, Formatter as FMT_Formatter};
     use std::str::FromStr;
+    use actix_web::http::header::ByteRangeSpec::From;
+    use mysql_common::prelude::{FromRow, FromValue};
+    use mysql_common::{FromRowError, FromValueError, Row};
+    use mysql_common::misc::raw::bytes;
     use strum_macros::EnumString;
+    use mysql_common::serde_json;
 
     #[derive(Serialize, Deserialize, EnumString, Clone, Debug)]
     pub enum Role {
         ADMIN,
         CUSTOMER,
+    }
+
+    impl Role {
+        fn from_value(v: Value) -> Result<Self, FromValueError> {
+            match v {
+                Value::Bytes(y) => {
+                    let str = String::from_utf8(y).unwrap();
+                    Ok(Role::from_str(&str).unwrap())
+                }
+                x => Err(FromValueError(x))
+            }
+        }
+    }
+
+    impl std::convert::From<String> for Role {
+        fn from(s: String) -> Self {
+            Role::from_str(&s).unwrap()
+        }
+    }
+
+    impl FromValue for Role {
+        type Intermediate = String;
+
+        fn from_value(v: Value) -> Self {
+            if let Value::Bytes(raw) = v {
+                let str = String::from_utf8(raw).unwrap();
+                return Role::from_str(&str).unwrap();
+            };
+            panic!("Failed to get value for Role");
+        }
+
+        fn from_value_opt(v: Value) -> Result<Self, FromValueError> {
+            Role::from_value(v)
+        }
+
+
+        fn get_intermediate(v: Value) -> Result<Self::Intermediate, FromValueError> {
+            match v {
+                Value::Bytes(raw) => {
+                    let s = String::from_utf8(raw).unwrap();
+                    Ok(s)
+                }
+                x => Err(FromValueError(x))
+            }
+        }
+    }
+
+    pub fn role_des(val: Value) -> Result<Role, FromValueError> {
+        match val {
+            Value::Bytes(raw) => {
+                let s = String::from_utf8(raw).unwrap();
+                let role = Role::from_str(s.as_str());
+                Ok(role.unwrap())
+            }
+            x => Err(FromValueError(x))
+        }
+    }
+
+    pub fn role_ser(role: Role) -> Value {
+        Value::Bytes(role.to_string().into_bytes())
     }
 
     impl Display for Role {
@@ -26,30 +91,6 @@ pub mod customer {
     #[derive(Debug)]
     pub struct EnumIr {
         string: String,
-    }
-
-    impl ConvIr<Role> for EnumIr {
-        fn new(v: Value) -> std::result::Result<EnumIr, mysql::FromValueError> {
-            match v {
-                Value::Bytes(bytes) => match String::from_utf8(bytes) {
-                    Ok(string) => Ok(EnumIr { string }),
-                    Err(e) => Err(mysql::FromValueError(Value::Bytes(e.into_bytes()))),
-                },
-                v => Err(mysql::FromValueError(v)),
-            }
-        }
-
-        fn commit(self) -> Role {
-            Role::from_str(&self.string).unwrap()
-        }
-
-        fn rollback(self) -> Value {
-            Value::Bytes(self.string.into_bytes())
-        }
-    }
-
-    impl FromValue for Role {
-        type Intermediate = EnumIr;
     }
 
     #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -95,7 +136,7 @@ pub mod customer {
         use pbkdf2::Pbkdf2;
         use rand::rngs::OsRng;
         use serde::{Deserialize, Serialize};
-        use crate::app::Error;
+        use crate::app::{APIError, APIResult};
 
         #[derive(Serialize, Deserialize, Clone, Debug)]
         pub struct CreateUser {
@@ -108,15 +149,16 @@ pub mod customer {
         }
 
         impl CreateUser {
-            pub fn hash_password(&mut self, realm: &RealmName) -> Result<String, Error> {
-                let salt_format = format!("{}|{}", &self.username, realm).into_bytes();
-                let salt = SaltString::encode_b64(salt_format.as_slice()).unwrap();
-                match Pbkdf2.hash_password(self.password.as_bytes(), &salt) {
-                    Ok(x) => {
+            pub fn hash_password(&mut self, realm: &RealmName) -> APIResult<String> {
+                let secret_format = format!("{}|{}", &self.username, realm).into_bytes();
+                let secret = SaltString::encode_b64(secret_format.as_slice()).unwrap();
+                match Pbkdf2.hash_password(self.password.as_bytes(), &secret) {
+                    Ok(hash) => {
+                        self.password = hash.to_string();
                         println!("Hashed pwd to: {}", &self.password);
-                        Ok(x.to_string())
+                        Ok(hash.to_string())
                     }
-                    Err(_) => Err(Error::PasswordHashing)
+                    Err(_) => Err(APIError::PasswordHashing)
                 }
             }
         }
@@ -159,13 +201,12 @@ mod test {
 
         println!("Current Pass: {}", &current_pass);
         let salt = format!("{}|{}", &user.username, realm).into_bytes();
-        let password_hash  =  user.hash_password(&realm).unwrap();
+        let password_hash = user.hash_password(&realm).unwrap();
 
         println!("Hashed Pass: {}", &password_hash);
 
         // Verify password against PHC string
         let parsed_hash = PasswordHash::new(&password_hash).unwrap();
         assert!(Pbkdf2.verify_password(&current_pass.as_bytes(), &parsed_hash).is_ok());
-
     }
 }
