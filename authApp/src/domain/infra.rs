@@ -30,6 +30,7 @@ pub mod web {
     use std::fmt;
     use std::fmt::{Debug, Display, Formatter};
     use std::num::NonZeroU32;
+    use mysql_common::serde_json;
 
     pub trait RealmFinder {
         type Realm;

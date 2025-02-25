@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::thread::sleep;
 use chrono::Duration;
 use mysql::AccessMode::{ReadOnly, ReadWrite};
+use mysql::prelude::Queryable;
 use crate::app::{APIError, APIResult};
 
 pub struct DB {
@@ -12,7 +13,6 @@ pub struct DB {
 }
 
 type SQLError = mysql::Error;
-type TransactionAction<R> = impl FnOnce(&mut Transaction) -> APIResult<R, mysql::Error>;
 
 impl DB {
     pub fn init(url: &str) -> DB {
@@ -20,10 +20,13 @@ impl DB {
         DB { pool }
     }
 
-    pub fn in_transaction<R>(
+    pub fn in_transaction<R, F>(
         &self,
         db_access_mode: AccessMode,
-        action: TransactionAction<R>) -> APIResult<R> {
+        mut action: F) -> APIResult<R>
+    where
+        F: FnMut(&mut Transaction) -> APIResult<R, SQLError>,
+    {
         let pool = self.pool.clone();
         let mut db_conn = pool.get_conn().expect("Unable to establish connection");
 
@@ -44,32 +47,33 @@ impl DB {
                 if db_access_mode != ReadOnly {
                     // add logging
                     if let Error::MySqlError(err) = sqL_err {
-                        return self.in_transaction_with_retry(&mut db_conn, db_access_mode, action, 3, 5)
+                        return self.in_transaction_with_retry(db_access_mode, action, 3, 5)
                             .map_err(|err| APIError::DBException(err));
                     };
-                    tx.rollback().map_err(|err| APIError::DBException(err))
-                } else {
-                    Err(APIError::DBException(sqL_err))
+                    tx.rollback().expect("Failed to rollback");
                 }
+                Err(APIError::DBException(sqL_err))
             }
         }
     }
 
-    fn in_transaction_with_retry<R>(
+    fn in_transaction_with_retry<R, F>(
         &self,
-        db_conn: &mut PooledConn,
         db_access_mode: AccessMode,
-        mut action: impl FnOnce(&mut Transaction) -> APIResult<R, Error>,
+        mut action: F,
+        mut retries: usize,
         max_retries: usize,
-    ) -> APIResult<R, Error> {
-        let mut retries = 0;
-
+    ) -> APIResult<R, Error>
+    where
+        F: FnMut(&mut Transaction) -> APIResult<R, Error>,
+    {
+        let mut pool = self.pool.clone();
         loop {
-            let mut tx: Transaction = db_conn
-                .start_transaction(TxOpts::default().set_access_mode(Some(db_access_mode)))
+            let mut db_conn = pool.get_conn().expect("Error establishing DB connection");
+            let mut tx: Transaction = db_conn.start_transaction(TxOpts::default().set_access_mode(Some(db_access_mode)))
                 .expect("Failed to initialize transaction");
 
-            match &action(&mut tx) {
+            match action(&mut tx) {
                 Ok(res) => {
                     if db_access_mode == ReadWrite {
                         tx.commit().expect("Failed to commit");
@@ -81,7 +85,7 @@ impl DB {
                         retries += 1;
                         sleep(core::time::Duration::from_millis(200));
                     } else {
-                        return Err(*err);
+                        return Err(err);
                     }
                 }
             }

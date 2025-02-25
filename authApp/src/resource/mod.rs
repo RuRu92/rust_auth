@@ -90,12 +90,13 @@ pub mod customer {
             .map_err(|e| LoginError::DatabaseError(e.to_string()))?;
 
         match result {
-            None => Err(LoginError::UserNotFound),
-            Some(u) => Ok(LoginUserData {
+            Ok(None) => Err(LoginError::UserNotFound),
+            Ok(Some(u)) => Ok(LoginUserData {
                 user: u,
                 realm: realm.clone(),
                 realm_settings_provider: data.realm_settings_provider.as_ref(),
             }),
+            Err(err) => Err(LoginError::DatabaseError(err.to_string()))
         }
     }
 
@@ -107,7 +108,7 @@ pub mod customer {
             let db = &data.execution_context.db;
             CustomerService::fetch_user(&path_param.user_id, &db)
         })
-        .await;
+            .await;
 
         match db_res {
             Ok(user_res) => user_res
@@ -139,7 +140,7 @@ pub mod customer {
             println!("duration: {:?}", dur);
             CustomerService::fetch_users(&db)
         })
-        .await;
+            .await;
 
         match db_res {
             Ok(user_res) => user_res
@@ -180,7 +181,7 @@ pub mod customer {
                 let user_data = req_body.into_inner();
                 CustomerService::create(user_data, realm_header.unwrap(), data.get_ref())
             })
-            .await;
+                .await;
 
             match future {
                 Ok(result) => result
@@ -189,7 +190,7 @@ pub mod customer {
                         JsonErrorResponse::new(None, e.to_string(), StatusCode::BAD_REQUEST)
                     }),
                 //TODO:: Message should be logged
-                Err(err) => Err(JsonErrorResponse::<Option<String>>::new(
+                Err(_err) => Err(JsonErrorResponse::<Option<String>>::new(
                     None,
                     "Failed to process information".to_string(),
                     StatusCode::INTERNAL_SERVER_ERROR,

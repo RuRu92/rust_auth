@@ -1,7 +1,7 @@
 pub mod token;
 
 pub mod customer_service {
-    use crate::db::DB;
+    use crate::db::{DB};
     use crate::domain::customer::{dto::CreateUser, Role, User, UserWithAddress};
     use crate::domain::realm::RealmName;
     use crate::repository::realm::RealmSettingProvider;
@@ -27,7 +27,7 @@ pub mod customer_service {
     impl CustomerService {
         pub fn fetch_users(db_context: &DB) -> APIResult<Vec<UserWithAddress>, APIError> {
             db_context
-                .in_transaction(AccessMode::ReadWrite, CustomerService::handle_create_user)
+                .in_transaction(AccessMode::ReadWrite, UserStorage::get_users)
         }
 
         pub fn fetch_user(
@@ -59,7 +59,7 @@ pub mod customer_service {
             let create_result = user_data.hash_password(&realm).and_then(|_| {
                 db_context.in_transaction(
                     AccessMode::ReadWrite,
-                    CustomerService::handle_create_user(user_data, &realm),
+                    CustomerService::handle_create_user(user_data),
                 )
             });
 
@@ -69,14 +69,11 @@ pub mod customer_service {
             }
         }
 
-        fn handle_create_user(
-            mut user_data: CreateUser,
-            realm: &RealmName,
-        ) -> impl FnOnce(&mut Transaction) -> APIResult<(String, String), Error> + '_ {
+        fn handle_create_user(user_data: CreateUser) -> impl FnMut(&mut Transaction) -> APIResult<(String, String), mysql::Error> {
             move |tx: &mut Transaction| {
                 let address = user_data.address.clone();
                 let user_id =
-                    UserStorage::create_from(user_data, tx).expect("Failed to create user");
+                    UserStorage::create_from(user_data.clone(), tx).expect("Failed to create user");
                 let address_id = AddressStorage::create_from((address, user_id.to_owned()), tx)
                     .expect("Failed to create user");
                 Ok((user_id, address_id))
@@ -85,7 +82,7 @@ pub mod customer_service {
     }
 
     fn handle_fetch_users() -> fn(&mut Transaction) -> APIResult<Vec<UserWithAddress>> {
-        |tx: &mut Transaction| UserStorage::get_users(tx)
+        |tx: &mut Transaction| UserStorage::get_users(tx).map_err(|err| APIError::DBException(err))
     }
 }
 
