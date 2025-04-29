@@ -2,13 +2,19 @@ pub mod infra;
 pub mod realm;
 
 pub mod customer {
-    use mysql::Value;
+    use actix_web::body::MessageBody;
+    use mysql::{FromValueError, Value};
+    use mysql_common;
     use serde::{Deserialize, Serialize};
+    use core::panic;
     use std::fmt::{Display, Formatter as FMT_Formatter};
     use std::str::FromStr;
     use strum_macros::EnumString;
+    use mysql::prelude::FromValue;    
 
-    #[derive(Serialize, Deserialize, EnumString, Clone, Debug)]
+    
+    #[derive(Serialize, Deserialize, FromValue, EnumString, Clone, Debug)]
+    #[mysql(is_string)]
     pub enum Role {
         ADMIN,
         CUSTOMER,
@@ -23,37 +29,9 @@ pub mod customer {
         }
     }
 
-    #[derive(Debug)]
-    pub struct EnumIr {
-        string: String,
-    }
-
-    impl ConvIr<Role> for EnumIr {
-        fn new(v: Value) -> std::result::Result<EnumIr, mysql::FromValueError> {
-            match v {
-                Value::Bytes(bytes) => match String::from_utf8(bytes) {
-                    Ok(string) => Ok(EnumIr { string }),
-                    Err(e) => Err(mysql::FromValueError(Value::Bytes(e.into_bytes()))),
-                },
-                v => Err(mysql::FromValueError(v)),
-            }
-        }
-
-        fn commit(self) -> Role {
-            Role::from_str(&self.string).unwrap()
-        }
-
-        fn rollback(self) -> Value {
-            Value::Bytes(self.string.into_bytes())
-        }
-    }
-
-    impl FromValue for Role {
-        type Intermediate = EnumIr;
-    }
 
     #[derive(Serialize, Deserialize, Clone, Debug)]
-    pub struct LoginRequest {
+     pub struct LoginRequest {
         pub username: String,
         pub password: String,
     }
@@ -91,6 +69,7 @@ pub mod customer {
     pub mod dto {
         use crate::domain::customer::Address;
         use crate::domain::realm::{Realm, RealmName};
+        use mysql::prelude::FromValue;
         use pbkdf2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
         use pbkdf2::Pbkdf2;
         use rand::rngs::OsRng;
@@ -108,16 +87,18 @@ pub mod customer {
         }
 
         impl CreateUser {
-            pub fn hash_password(&mut self, realm: &RealmName) -> Result<String, Error> {
+            pub fn hash_password(&mut self, realm: &RealmName) {
                 let salt_format = format!("{}|{}", &self.username, realm).into_bytes();
                 let salt = SaltString::encode_b64(salt_format.as_slice()).unwrap();
                 match Pbkdf2.hash_password(self.password.as_bytes(), &salt) {
                     Ok(x) => {
                         println!("Hashed pwd to: {}", &self.password);
-                        Ok(x.to_string())
+                        self.password = String::from(x.to_string().as_str());
                     }
-                    Err(_) => Err(Error::PasswordHashing)
-                }
+                    Err(_) => {
+                        println!("Failed to hash password");
+                    }
+                };
             }
         }
 

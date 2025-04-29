@@ -83,7 +83,7 @@ pub mod customer_service {
         ) -> impl FnOnce(&mut Transaction) -> Result<(String, String)> + '_ {
             return move |tx: &mut Transaction| {
                 let address = user_data.address.clone();
-                user_data.hash_password(realm, arc.as_ref().get_realm_salt_itr(&realm) as u32);
+                user_data.hash_password(realm);
                 let user_id =
                     UserStorage::create_from(user_data, tx).expect("Failed to create user");
                 let address_id = AddressStorage::create_from((address, user_id.to_owned()), tx)

@@ -111,6 +111,7 @@ pub mod web {
             use chrono::{Days, Utc};
             use jsonwebtoken::EncodingKey;
             use std::time::Duration;
+            use mysql_common::serde_json;
 
             #[test]
             fn test_auth_token() {
