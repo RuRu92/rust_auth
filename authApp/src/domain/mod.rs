@@ -2,81 +2,23 @@ pub mod infra;
 pub mod realm;
 
 pub mod customer {
-    use mysql::Value;
+    use actix_web::body::MessageBody;
+    use mysql::{FromValueError, Value};
+    use mysql_common;
     use serde::{Deserialize, Serialize};
+    use core::panic;
     use std::fmt::{Display, Formatter as FMT_Formatter};
     use std::str::FromStr;
-    use actix_web::http::header::ByteRangeSpec::From;
-    use mysql_common::prelude::{FromRow, FromValue};
-    use mysql_common::{FromRowError, FromValueError, Row};
-    use mysql_common::misc::raw::bytes;
     use strum_macros::EnumString;
     use mysql_common::serde_json;
+    use mysql::prelude::FromValue;
 
-    #[derive(Serialize, Deserialize, EnumString, Clone, Debug)]
+
+    #[derive(Serialize, Deserialize, FromValue, EnumString, Clone, Debug)]
+    #[mysql(is_string)]
     pub enum Role {
         ADMIN,
         CUSTOMER,
-    }
-
-    impl Role {
-        fn from_value(v: Value) -> Result<Self, FromValueError> {
-            match v {
-                Value::Bytes(y) => {
-                    let str = String::from_utf8(y).unwrap();
-                    Ok(Role::from_str(&str).unwrap())
-                }
-                x => Err(FromValueError(x))
-            }
-        }
-    }
-
-    impl std::convert::From<String> for Role {
-        fn from(s: String) -> Self {
-            Role::from_str(&s).unwrap()
-        }
-    }
-
-    impl FromValue for Role {
-        type Intermediate = String;
-
-        fn from_value(v: Value) -> Self {
-            if let Value::Bytes(raw) = v {
-                let str = String::from_utf8(raw).unwrap();
-                return Role::from_str(&str).unwrap();
-            };
-            panic!("Failed to get value for Role");
-        }
-
-        fn from_value_opt(v: Value) -> Result<Self, FromValueError> {
-            Role::from_value(v)
-        }
-
-
-        fn get_intermediate(v: Value) -> Result<Self::Intermediate, FromValueError> {
-            match v {
-                Value::Bytes(raw) => {
-                    let s = String::from_utf8(raw).unwrap();
-                    Ok(s)
-                }
-                x => Err(FromValueError(x))
-            }
-        }
-    }
-
-    pub fn role_des(val: Value) -> Result<Role, FromValueError> {
-        match val {
-            Value::Bytes(raw) => {
-                let s = String::from_utf8(raw).unwrap();
-                let role = Role::from_str(s.as_str());
-                Ok(role.unwrap())
-            }
-            x => Err(FromValueError(x))
-        }
-    }
-
-    pub fn role_ser(role: Role) -> Value {
-        Value::Bytes(role.to_string().into_bytes())
     }
 
     impl Display for Role {
@@ -93,8 +35,32 @@ pub mod customer {
         string: String,
     }
 
+    impl ConvIr<Role> for EnumIr {
+        fn new(v: Value) -> std::result::Result<EnumIr, mysql::FromValueError> {
+            match v {
+                Value::Bytes(bytes) => match String::from_utf8(bytes) {
+                    Ok(string) => Ok(EnumIr { string }),
+                    Err(e) => Err(mysql::FromValueError(Value::Bytes(e.into_bytes()))),
+                },
+                v => Err(mysql::FromValueError(v)),
+            }
+        }
+
+        fn commit(self) -> Role {
+            Role::from_str(&self.string).unwrap()
+        }
+
+        fn rollback(self) -> Value {
+            Value::Bytes(self.string.into_bytes())
+        }
+    }
+
+    impl FromValue for Role {
+        type Intermediate = EnumIr;
+    }
+
     #[derive(Serialize, Deserialize, Clone, Debug)]
-    pub struct LoginRequest {
+     pub struct LoginRequest {
         pub username: String,
         pub password: String,
     }
@@ -132,6 +98,7 @@ pub mod customer {
     pub mod dto {
         use crate::domain::customer::Address;
         use crate::domain::realm::{Realm, RealmName};
+        use mysql::prelude::FromValue;
         use pbkdf2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
         use pbkdf2::Pbkdf2;
         use rand::rngs::OsRng;
