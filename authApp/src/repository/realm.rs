@@ -14,7 +14,7 @@ pub struct RealmSettingProvider {
 
 impl RealmSettingProvider {
     pub fn init(db: Arc<DB>) -> RealmSettingProvider {
-        let realms = vec!["rj.fg", "rj.wire", "rj.fa"];
+        let realms = vec!["rj.fg", "rj.wire", "rj.haven", "rj.fa"];
 
         let mut realm_settings = HashMap::new();
         for r in realms {

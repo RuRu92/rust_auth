@@ -85,8 +85,8 @@ pub mod customer_service {
                 let address = user_data.address.clone();
                 user_data.hash_password(realm);
                 let user_id =
-                    UserStorage::create_from(user_data, tx).expect("Failed to create user");
-                let address_id = AddressStorage::create_from((address, user_id.to_owned()), tx)
+                    UserStorage::create_from(user_data, realm, tx).expect("Failed to create user");
+                let address_id = AddressStorage::create_from((address, user_id.to_owned()), realm, tx)
                     .expect("Failed to create user");
                 Ok((user_id, address_id))
             };

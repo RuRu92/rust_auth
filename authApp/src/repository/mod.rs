@@ -16,7 +16,7 @@ pub trait Repository<T> {
     type UpdateMetaData;
     type ID;
 
-    fn create_from(data: Self::CreationData, tx: &mut Transaction) -> Result<Self::ID>;
+    fn create_from(data: Self::CreationData, realm: &RealmName, tx: &mut Transaction) -> Result<Self::ID>;
 
     fn update(data: Self::UpdateMetaData, tx: &mut Transaction) -> bool;
 
@@ -35,7 +35,7 @@ impl UserStorage {
                     name,\
                     password, \
                     role \
-                    FROM user \
+                    FROM realm_user \
                     WHERE user_id = :user_id",
             params! { "user_id" => user_id },
         )
@@ -61,7 +61,7 @@ impl UserStorage {
                     username,\
                     password, \
                     role \
-                    FROM user \
+                    FROM ream_user \
                     WHERE username = :username\
                     AND realm = :realm",
             params! {
@@ -90,7 +90,7 @@ impl UserStorage {
             a.city, \
             a.post_code, \
             a.country \
-            FROM user u \
+            FROM realm_user u \
             INNER JOIN address a on u.user_id = a.user_id ",
             |(id, name, role, street, city, post_code, country)| UserWithAddress {
                 user_id: id,
@@ -112,19 +112,21 @@ impl Repository<User> for UserStorage {
     type UpdateMetaData = UserMetadata;
     type ID = String;
 
-    fn create_from(data: Self::CreationData, tx: &mut Transaction) -> Result<Self::ID> {
+    fn create_from(data: Self::CreationData, realm: &RealmName, tx: &mut Transaction) -> Result<Self::ID> {
         let user_id = Uuid::new_v4().to_string();
 
         tx.exec_drop(
-            "INSERT INTO user (user_id, username, role, name, password, email) \
-                      VALUES (:user_id, :username, :role, :name, :password, :email)",
+            "INSERT INTO realm_user (realm_name, user_id, username, role, name, password, email) \
+                      VALUES (:realm, :user_id, :username, :role, :name, :password, :email)",
             params! {
+            "realm" => realm,
             "user_id" => &user_id,
             "username" => &data.username,
             "role" => Role::CUSTOMER.to_string(),
             "name" => &data.name,
             "password" => &data.password,
             "email" => &data.email,
+            "expired_at" => chrono::DateTime(),
             },
         )
         .expect("Failed to create user");
@@ -163,7 +165,7 @@ impl Repository<Address> for AddressStorage {
     type UpdateMetaData = (Option<Address>, String);
     type ID = String;
 
-    fn create_from(data: Self::CreationData, tx: &mut Transaction) -> Result<Self::ID> {
+    fn create_from(data: Self::CreationData, _: &RealmName, tx: &mut Transaction) -> Result<Self::ID> {
         let address = &data.0;
         let user_id: String = data.1;
         let address_id = Uuid::new_v4().to_string();
