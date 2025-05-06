@@ -1,7 +1,7 @@
 use log::log;
 use crate::domain::customer::dto::{CreateUser, UserMetadata};
 use crate::domain::customer::{Address, Role, User, UserWithAddress};
-use crate::domain::realm::RealmName;
+use crate::domain::realm::{Realm, RealmName};
 use crate::Principal;
 use mysql::error::Result;
 use mysql::prelude::Queryable;
@@ -14,8 +14,12 @@ pub mod realm;
 
 type CountryCode = String;
 
+pub trait WithRealm {
+    fn realm_name(&self) -> &RealmName;
+}
+
 pub trait Repository<T> {
-    type CreationData;
+    type CreationData: WithRealm;
     type UpdateMetaData;
     type ID;
 
@@ -38,7 +42,7 @@ impl UserStorage {
                     name,\
                     password, \
                     role \
-                    FROM user \
+                    FROM realm_user \
                     WHERE user_id = :user_id",
             params! { "user_id" => user_id },
         )
@@ -65,7 +69,7 @@ impl UserStorage {
                     username,\
                     password, \
                     role \
-                    FROM user \
+                    FROM realm_user \
                     WHERE username = :username\
                     AND realm = :realm",
             params! {
@@ -84,8 +88,8 @@ impl UserStorage {
             })
     }
 
-    pub fn get_users(tx: &mut Transaction) -> APIResult<Vec<UserWithAddress>, mysql::Error> {
-        tx.query_map(
+    pub fn get_users(realm: &RealmName, tx: &mut Transaction) -> APIResult<Vec<UserWithAddress>, mysql::Error> {
+        tx.exec_map(
             "SELECT \
             u.user_id, \
             u.name,\
@@ -94,8 +98,12 @@ impl UserStorage {
             a.city, \
             a.post_code, \
             a.country \
-            FROM user u \
-            INNER JOIN address a on u.user_id = a.user_id ",
+            FROM realm_user u \
+            INNER JOIN address a on u.user_id = a.user_id
+            WHERE realm = :realm",
+            params! {
+                "realm" => realm
+            },
             |(id, name, role, street, city, post_code, country)| UserWithAddress {
                 user_id: id,
                 role,
@@ -118,12 +126,13 @@ impl Repository<User> for UserStorage {
 
     fn create_from(data: Self::CreationData, tx: &mut Transaction) -> APIResult<Self::ID, mysql::Error> {
         let user_id = Uuid::new_v4().to_string();
-
+        println!("Generated UUID: {}", user_id);
         tx.exec_drop(
-            "INSERT INTO user (user_id, username, role, name, password, email) \
-                      VALUES (:user_id, :username, :role, :name, :password, :email)",
+            "INSERT INTO realm_user (user_id, realm_name, username, role, name, password, email) \
+                      VALUES (:user_id, :realm, :username, :role, :name, :password, :email)",
             params! {
             "user_id" => &user_id,
+            "realm" => &data.realm,
             "username" => &data.username,
             "role" => Role::CUSTOMER.to_string(),
             "name" => &data.name,
@@ -161,14 +170,23 @@ impl AddressStorage {
     // }
 }
 
+impl WithRealm for (RealmName, String, Address) {
+    fn realm_name(&self) -> &RealmName {
+        &self.0
+    }
+}
+
 impl Repository<Address> for AddressStorage {
-    type CreationData = (Address, String);
+    type CreationData = (RealmName, String, Address);
     type UpdateMetaData = (Option<Address>, String);
     type ID = String;
 
+   
+
     fn create_from(data: Self::CreationData, tx: &mut Transaction) -> APIResult<Self::ID, mysql::Error> {
-        let address = &data.0;
+        let realm = &data.0;
         let user_id: String = data.1;
+        let address = data.2;
         let address_id = Uuid::new_v4().to_string();
 
         tx.exec_drop(

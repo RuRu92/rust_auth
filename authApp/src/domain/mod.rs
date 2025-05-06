@@ -30,35 +30,7 @@ pub mod customer {
         }
     }
 
-    #[derive(Debug)]
-    pub struct EnumIr {
-        string: String,
-    }
-
-    impl ConvIr<Role> for EnumIr {
-        fn new(v: Value) -> std::result::Result<EnumIr, mysql::FromValueError> {
-            match v {
-                Value::Bytes(bytes) => match String::from_utf8(bytes) {
-                    Ok(string) => Ok(EnumIr { string }),
-                    Err(e) => Err(mysql::FromValueError(Value::Bytes(e.into_bytes()))),
-                },
-                v => Err(mysql::FromValueError(v)),
-            }
-        }
-
-        fn commit(self) -> Role {
-            Role::from_str(&self.string).unwrap()
-        }
-
-        fn rollback(self) -> Value {
-            Value::Bytes(self.string.into_bytes())
-        }
-    }
-
-    impl FromValue for Role {
-        type Intermediate = EnumIr;
-    }
-
+   
     #[derive(Serialize, Deserialize, Clone, Debug)]
      pub struct LoginRequest {
         pub username: String,
@@ -98,6 +70,7 @@ pub mod customer {
     pub mod dto {
         use crate::domain::customer::Address;
         use crate::domain::realm::{Realm, RealmName};
+        use crate::repository::WithRealm;
         use mysql::prelude::FromValue;
         use pbkdf2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
         use pbkdf2::Pbkdf2;
@@ -107,6 +80,7 @@ pub mod customer {
 
         #[derive(Serialize, Deserialize, Clone, Debug)]
         pub struct CreateUser {
+            pub realm: RealmName,
             pub username: String,
             pub password: String,
             pub name: String,
@@ -127,6 +101,12 @@ pub mod customer {
                     }
                     Err(_) => Err(APIError::PasswordHashing)
                 }
+            }
+        }
+
+        impl WithRealm for CreateUser {
+            fn realm_name(&self) -> &RealmName {
+                &self.realm
             }
         }
 

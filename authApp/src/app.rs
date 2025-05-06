@@ -11,6 +11,9 @@ pub enum APIError {
 
     #[error("Bad Request")]
     DBException(DBError),
+
+    #[error("User creation failed")]
+    UserCreationFailed()
 }
 
 pub type APIResult<T, E = APIError> = Result<T, E>;

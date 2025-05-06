@@ -25,9 +25,9 @@ pub mod customer_service {
     pub struct CustomerService {}
 
     impl CustomerService {
-        pub fn fetch_users(db_context: &DB) -> APIResult<Vec<UserWithAddress>, APIError> {
-            db_context
-                .in_transaction(AccessMode::ReadWrite, UserStorage::get_users)
+        pub fn fetch_users(realm: &RealmName, db_context: &DB) -> APIResult<Vec<UserWithAddress>, APIError> {
+            db_context.in_transaction(AccessMode::ReadWrite,
+                 |tx| UserStorage::get_users(realm, tx))
         }
 
         pub fn fetch_user(
@@ -74,15 +74,15 @@ pub mod customer_service {
                 let address = user_data.address.clone();
                 let user_id =
                     UserStorage::create_from(user_data.clone(), tx).expect("Failed to create user");
-                let address_id = AddressStorage::create_from((address, user_id.to_owned()), tx)
+                let address_id = AddressStorage::create_from((user_data.realm.clone(), user_id.to_owned(), address), tx)
                     .expect("Failed to create user");
                 Ok((user_id, address_id))
             }
         }
     }
 
-    fn handle_fetch_users() -> fn(&mut Transaction) -> APIResult<Vec<UserWithAddress>> {
-        |tx: &mut Transaction| UserStorage::get_users(tx).map_err(|err| APIError::DBException(err))
-    }
+    // fn handle_fetch_users() -> fn(&mut Transaction) -> APIResult<Vec<UserWithAddress>> {
+    //     |tx: &mut Transaction| UserStorage::get_users(tx).map_err(|err| APIError::DBException(err))
+    // }
 }
 

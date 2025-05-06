@@ -26,6 +26,7 @@ serde_json = "*"
 sha2 = "0.10.6"
 data-encoding = "2.3.3"
 log = "0.4.14"
+env_logger = "0.10" # Or use tracing for more advanced logging
 chrono = "0.4.38"
 pbkdf2 = { version = "0.12.2", features = ["simple"] }
 thiserror = "2.0.11"

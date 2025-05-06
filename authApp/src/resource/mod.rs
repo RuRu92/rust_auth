@@ -12,6 +12,9 @@ pub mod customer {
     use actix_web::{web, web::Path, HttpRequest, HttpResponse, Responder};
     use serde::Deserialize;
 
+    use log::{info, warn, error, debug};
+
+
     #[derive(Deserialize)]
     pub struct UserId {
         user_id: String, // must match the path param name
@@ -26,7 +29,6 @@ pub mod customer {
     type LoginErrorResponse = JsonErrorResponse<Option<String>>;
 
     pub async fn login(
-        path_param: Path<UserId>,
         json: web::Json<LoginRequest>,
         req: HttpRequest,
     ) -> Result<HttpResponse, LoginErrorResponse> {
@@ -34,6 +36,7 @@ pub mod customer {
             .headers()
             .get_realm()
             .ok_or(LoginError::MissingRealmHeader)?;
+        
         let login_request = json.0;
 
         let data = match req.app_data::<Data<AppState>>() {
@@ -132,26 +135,49 @@ pub mod customer {
         req: HttpRequest,
         data: web::Data<AppState>,
     ) -> Result<HttpResponse, JsonErrorResponse<Option<String>>> {
+        info!("[GetAll] Fetching all users for a realm.");
+        // Extract just the realm string (and anything else you need from the request) here.
+        let realm_string = req
+        .headers()
+        .get("Realm")
+        .ok_or_else(|| {
+            JsonErrorResponse::<Option<String>>::new(
+                None,
+                "No realm provided.".to_string(),
+                StatusCode::BAD_REQUEST,
+            )
+        })?
+        .to_str()
+        .map_err(|_| {
+            JsonErrorResponse::<Option<String>>::new(
+                None,
+                "Invalid Realm header format.".to_string(),
+                StatusCode::BAD_REQUEST,
+            )
+        })?
+        .to_string();
+            
+
+        // Now we can safely move realm_string (and data) into the blocking call.
         let db_res = web::block(move || {
-            // HeaderValue::
+            let realm = RealmName::from(realm_string);
             let provider = &data.realm_settings_provider;
             let db = &data.execution_context.db;
             let dur = provider.get_password_reset_token_duration("rj.wire");
             println!("duration: {:?}", dur);
-            CustomerService::fetch_users(&db)
+            CustomerService::fetch_users(&realm, db)
         })
-            .await;
-
+        .await
+        .map_err(|e| {
+            JsonErrorResponse::<Option<String>>::new(
+                None,
+                e.to_string(),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            )
+        })?;
+    
         match db_res {
-            Ok(user_res) => user_res
-                .map(|users| Ok(HttpResponse::Ok().json(users)))
-                .unwrap_or_else(|_| {
-                    Err(JsonErrorResponse::<Option<String>>::new(
-                        None,
-                        "User not found".to_string(),
-                        StatusCode::NOT_FOUND,
-                    ))
-                }),
+            Ok(user_res) => Ok(HttpResponse::Ok().json(user_res)),
             Err(e) => Err(JsonErrorResponse::<Option<String>>::new(
                 None,
                 e.to_string(),

@@ -31,18 +31,21 @@ fn customer_resource() -> Scope {
 }
 
 fn realm_resource() -> Scope {
-    return web::scope("/realm")
-        .service(web::resource("/{realm}/login").route(web::post().to(customer::login)))
+    web::scope("/realm")
         .service(
-            web::resource("/{realm}")
-                .route(web::put().to(customer::login))
-                .route(web::get().to(customer::get)), // .route(web::put().to(customer::update)),
+            web::resource("/login") // Specific route
+                .route(web::post().to(customer::login)),
         )
         .service(
-            web::resource("")
+            web::resource("/{realm}") // Less specific route
+                .route(web::get().to(customer::get))
+                .route(web::put().to(customer::update)),
+        )
+        .service(
+            web::resource("") // Generic route
                 .route(web::post().to(customer::create))
                 .route(web::get().to(customer::get_all)),
-        );
+        )
 }
 
 fn admin_resource() -> Resource {

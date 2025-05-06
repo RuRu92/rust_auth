@@ -2,6 +2,7 @@
 #![allow(dead_code)]
 #![allow(warnings)]
 
+use env_logger;
 use actix_web::{rt as actix_rt, web, App, HttpServer};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -34,6 +35,8 @@ pub struct AppState {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    env_logger::init();
+
     let db = Arc::new(db::DB::init(URL));
     let realm_settings_provider =
         Arc::new(repository::realm::RealmSettingProvider::init(db.clone()));
