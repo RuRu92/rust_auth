@@ -41,6 +41,7 @@ impl UserStorage {
                     user_id, \
                     name,\
                     password, \
+                    auth_token,
                     role \
                     FROM realm_user \
                     WHERE user_id = :user_id",
@@ -48,10 +49,11 @@ impl UserStorage {
         )
             .map(|row| {
                 //Unpack Option
-                row.map(|(user_id, name, password, role)| User {
+                row.map(|(user_id, name, password, auth_token, role)| User {
                     user_id,
                     username: name,
                     hashed_pass: password,
+                    auth_token,
                     role,
                 })
             })
@@ -68,10 +70,11 @@ impl UserStorage {
                     user_id, \
                     username,\
                     password, \
+                    auth_token, \
                     role \
                     FROM realm_user \
-                    WHERE username = :username\
-                    AND realm = :realm",
+                    WHERE username = :username \
+                    AND realm_name = :realm",
             params! {
                 "username" => username,
                 "realm" => realm
@@ -79,10 +82,11 @@ impl UserStorage {
         )
             .map(|row| {
                 //Unpack Option
-                row.map(|(user_id, name, password, role)| User {
+                row.map(|(user_id, name, password, auth_token, role)| User {
                     user_id,
                     username: name,
                     hashed_pass: password,
+                    auth_token,
                     role,
                 })
             })

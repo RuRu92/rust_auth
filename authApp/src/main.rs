@@ -2,9 +2,11 @@
 #![allow(dead_code)]
 #![allow(warnings)]
 
-use env_logger;
-use actix_web::{rt as actix_rt, web, App, HttpServer};
+use domain::realm::Realm;
+use env_logger::{self, Env};
+use actix_web::{middleware as actix_mw, rt as actix_rt, web, App, HttpServer};
 use serde::{Deserialize, Serialize};
+use std::collections::{hash_map, HashMap};
 use std::sync::Arc;
 
 mod db;
@@ -14,6 +16,7 @@ mod resource;
 mod route;
 mod service;
 mod app;
+pub mod middleware;
 
 const URL: &str = "mysql://root:password@localhost:3306/auth";
 
@@ -35,7 +38,9 @@ pub struct AppState {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    env_logger::init();
+    std::env::set_var("RUST_LOG", "info");
+
+    env_logger::init_from_env(Env::default().default_filter_or("info"));
 
     let db = Arc::new(db::DB::init(URL));
     let realm_settings_provider =
@@ -54,7 +59,16 @@ async fn main() -> std::io::Result<()> {
         println!("server started");
         // realm_updater.join();
         App::new()
-            .app_data(app_data.clone()).configure(routes)
+            .app_data(app_data.clone())
+            .wrap(actix_mw::Logger::default())
+            .wrap(actix_mw::Logger::new("%a - %r - %P %{User-Agent}i"))
+            .wrap(middleware::auth::AuthMiddleware {
+                 secret: |realm, username| {
+                    format!("{realm}|{username}")
+                 },
+                 routing_table: initRoutingTable()
+            })
+            .configure(routes)
     })
     .bind("127.0.0.1:9090")?
     .run()
@@ -69,5 +83,26 @@ async fn refresh_realm_settings(arc: Arc<RealmSettingProvider>) {
         actix_rt::task::spawn_blocking(move || {
             &provider.reload();
         });
+    }
+}
+
+fn initRoutingTable() -> HashMap<String, middleware::auth::PathGuard> {
+    
+    use middleware::auth::PathGuard;
+    use crate::domain::customer::Role;
+    
+    hashmap! {
+        // Open paths (accessible to anyone)
+        "/api" => PathGuard::Open,
+        "/api/customer" => PathGuard::Open,
+        "/api/customer/{user_id}" => PathGuard::Open,
+        "/api/realm/login" => PathGuard::Open,
+
+        // Authorized paths (requires a valid token)
+        "/api/realm" => PathGuard::Authorized,
+        "/api/realm/{realm}" => PathGuard::Authorized,
+
+        // Guarded paths (requires specific roles)
+        "/api/admin" => PathGuard::Guarded(Role::Admin),
     }
 }

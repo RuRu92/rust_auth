@@ -3,7 +3,8 @@ pub mod token;
 pub mod customer_service {
     use crate::db::{DB};
     use crate::domain::customer::{dto::CreateUser, Role, User, UserWithAddress};
-    use crate::domain::realm::RealmName;
+    use crate::domain::infra::web::auth::{AppAuthorizer, AppToken, Authorizer};
+    use crate::domain::realm::{InternalRealmSettings, RealmName, RealmSettings, UserRealmSettings};
     use crate::repository::realm::RealmSettingProvider;
     use crate::repository::{AddressStorage, Repository, UserStorage};
     use crate::{AppState, Principal};
@@ -12,13 +13,33 @@ pub mod customer_service {
     use std::str::FromStr;
     use std::sync::Arc;
     use std::{clone::Clone, option::Option};
+    use chrono::{Days, Utc};
     use crate::app::{APIError, APIResult};
+    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+
 
     pub struct AuthenticatorService {}
 
     impl AuthenticatorService {
-        pub fn initialise_token(data: &User) -> String {
-            "a".parse().unwrap()
+        pub fn initialise_token(realm: RealmName, data: &User, realm_settings_provider: RealmSettingProvider) -> String {
+
+            let dt = Utc::now().checked_add_days(Days::new(60));
+
+            let token = AppToken {
+                username: data.username,
+                password: data.hashed_pass,
+                realm_settings,
+                realm: realm,
+                expiry: dt.unwrap().timestamp(),
+            };
+
+            let secret = format!("{username}|{realm}");
+            let header = Header::new(Algorithm::HS512);
+            return encode(
+                &header,
+                &claim,
+                &EncodingKey::from_secret(secret)).unwrap()
+                .unwrap()
         }
     }
 

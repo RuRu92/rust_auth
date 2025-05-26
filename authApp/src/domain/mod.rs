@@ -48,6 +48,7 @@ pub mod customer {
         pub user_id: String,
         pub username: String,
         pub hashed_pass: String,
+        pub auth_token: String,
         pub role: Role,
     }
 
@@ -92,7 +93,7 @@ pub mod customer {
         impl CreateUser {
             pub fn hash_password(&mut self, realm: &RealmName) -> APIResult<String> {
                 let secret_format = format!("{}|{}", &self.username, realm).into_bytes();
-                let secret = SaltString::encode_b64(secret_format.as_slice()).unwrap();
+                let secret: SaltString = SaltString::encode_b64(secret_format.as_slice()).unwrap();
                 match Pbkdf2.hash_password(self.password.as_bytes(), &secret) {
                     Ok(hash) => {
                         self.password = hash.to_string();
@@ -130,6 +131,7 @@ mod test {
     #[test]
     fn test_hashing_password() {
         let mut user = CreateUser {
+            realm: "rj.nitro".to_owned(),
             username: "ruru".to_string(),
             password: "password".to_string(),
             name: "RuRu".to_string(),

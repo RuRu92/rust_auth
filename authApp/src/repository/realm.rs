@@ -5,7 +5,7 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use crate::db::{ExecutionContext, DB};
-use crate::domain::realm::{InternalRealmSettings, Realm, RealmName, RealmSettings};
+use crate::domain::realm::{InternalRealmSettings, Realm, RealmName, RealmSettings, UserRealmSettings};
 
 pub struct RealmSettingProvider {
     settings: Arc<HashMap<RealmName, RwLock<InternalRealmSettings>>>,
@@ -14,7 +14,7 @@ pub struct RealmSettingProvider {
 
 impl RealmSettingProvider {
     pub fn init(db: Arc<DB>) -> RealmSettingProvider {
-        let realms = vec!["rj.fg", "rj.wire", "rj.fa"];
+        let realms = vec!["rj.fg", "rj.wire", "rj.fa", "rj.haven"];
 
         let mut realm_settings = HashMap::new();
         for r in realms {
@@ -111,3 +111,4 @@ impl RealmSettingProvider {
         self
     }
 }
+

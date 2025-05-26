@@ -9,6 +9,7 @@ use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use strum_macros::Display;
 
+
 pub mod web {
     use crate::domain::customer::{LoginRequest, LoginRequestArguments, User};
     use crate::domain::realm::{Realm, RealmName, UserRealmSettings};
@@ -21,6 +22,8 @@ pub mod web {
     use data_encoding::HEXUPPER;
     use jsonwebtoken::errors::Error;
     use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+    use log::info;
+    use rand::distr::Open01;
     use ring::digest::SHA256;
     use ring::pbkdf2 as pbk;
     use ring::rand::SystemRandom;
@@ -32,9 +35,17 @@ pub mod web {
     use std::num::NonZeroU32;
     use mysql_common::serde_json;
 
+    use crate::app::APIError;
+
+
     pub trait RealmFinder {
         type Realm;
         fn get_realm(&self) -> Option<Self::Realm>;
+    }
+
+    pub trait TokenFinder {
+        type Token;
+        fn get_token(&self) -> Option<Self::Token>;
     }
 
     impl RealmFinder for HeaderMap {
@@ -42,11 +53,23 @@ pub mod web {
 
         fn get_realm(&self) -> Option<Self::Realm> {
             self.get("Realm")
-                .map(|realm| realm.to_str().unwrap_or_else(|_e| "|").to_string())
+                .map(|realm: &HeaderValue| realm.to_str().unwrap_or_else(|_e| "|").to_string())
+        }
+    }
+
+    impl TokenFinder for HeaderMap {
+        type Token = String;
+
+        fn get_token(&self) -> Option<Self::Token> {
+            self.get("Authorization")
+                .and_then(|auth: &HeaderValue| auth.to_str().ok()) // Convert HeaderValue to &str
+                .and_then(|auth_str| auth_str.strip_prefix("Bearer ")) // Strip "Bearer " prefix
+                .map(|token| token.to_string()) // Convert to String
         }
     }
 
     pub mod auth {
+        use crate::app::APIError;
         use crate::domain::customer::LoginRequestArguments;
         use crate::domain::realm::{RealmName, UserRealmSettings};
         use data_encoding::HEXUPPER;
@@ -60,50 +83,63 @@ pub mod web {
 
         type Token = String;
 
+        pub trait Authorizer {
+            type Token;
+        
+        
+            fn verify_auth_token(incoming_token: &Self::Token, user_token: &Self::Token) -> Result<AppToken, APIError>;
+            
+            fn get_auth_token(claim: &AppToken, secret: String) -> Token;
+            
+            fn verify_login(args: &LoginRequestArguments, realm: RealmName, iter: u32) -> bool;
+        }
+    
+        pub struct AppAuthorizer;
+
         #[derive(Debug, Serialize, Deserialize)]
-        struct AppToken {
-            username: String,
-            password: String,
-            realm_settings: UserRealmSettings,
-            realm: RealmName,
-            expiry: i64,
+        pub struct AppToken {
+            pub username: String,
+            pub password: String,
+            pub realm_settings: UserRealmSettings,
+            pub realm: RealmName,
+            pub expiry: i64,
         }
 
-        pub fn verify_login(args: &LoginRequestArguments, realm: RealmName, iter: u32) -> bool {
-            let login_request = &args.login_request;
-            let salt = format!("{}|{}", &login_request.username, realm).into_bytes();
-
-            let decoded_pass = HEXUPPER.decode(args.user.hashed_pass.as_bytes()).unwrap();
-
-            let verified = pbk::verify(
-                pbk::PBKDF2_HMAC_SHA256,
-                NonZeroU32::new(iter).unwrap(),
-                &salt,
-                login_request.password.as_bytes(),
-                &decoded_pass,
-            );
-
-            verified.is_ok()
-        }
-
-        trait Authorizer {
-            //    type WebToken;
-            fn get_auth_token(claim: &AppToken) -> Token;
-        }
-        struct AppAuthorizer {}
 
         impl Authorizer for AppAuthorizer {
+            type Token = String;
+
             // type WebToken = String;
-            fn get_auth_token(claim: &AppToken) -> Token {
-                let header = Header::new(Algorithm::HS512);
-                return encode(
-                    &header,
-                    &claim,
-                    &EncodingKey::from_secret("secret".as_ref()),
-                )
-                    .unwrap();
+            fn get_auth_token(claim: &AppToken, secret: String) -> Token {
+                
+            }
+            
+            
+            fn verify_auth_token(incoming_token: &Self::Token, user_token: &Self::Token) -> Result<AppToken, APIError> {
+                todo!()
+            }
+
+            fn verify_login(args: &LoginRequestArguments, realm: RealmName, iter: u32) -> bool {
+                let login_request = &args.login_request;
+                let salt = format!("{}|{}", &login_request.username, realm).into_bytes();
+    
+                let decoded_pass = HEXUPPER.decode(args.user.hashed_pass.as_bytes()).unwrap();
+    
+                let verified = pbk::verify(
+                    pbk::PBKDF2_HMAC_SHA256,
+                    NonZeroU32::new(iter).unwrap(),
+                    &salt,
+                    login_request.password.as_bytes(),
+                    &decoded_pass,
+                );
+    
+                verified.is_ok()
             }
         }
+    }
+
+
+        
 
         #[cfg(test)]
         mod tests {
@@ -155,6 +191,11 @@ pub mod web {
     }
 
     impl<T> JsonErrorResponse<T> {
+
+        pub fn empty_ok() -> JsonErrorResponse<T> {
+            return JsonErrorResponse { body: None, message: "".to_string(), status_code: StatusCode::OK };
+        }
+
         pub fn new(
             body: Option<T>,
             message: String,
@@ -174,6 +215,15 @@ pub mod web {
                 status_code,
             }
         }
+
+        pub fn set_message(&mut self, message: String) {
+            self.message = message;
+        }
+
+        pub fn set_status(&mut self, status_code: StatusCode) {
+            self.status_code = status_code;
+        }
+
     }
 
     impl<T: Serialize> Display for JsonErrorResponse<T> {
@@ -239,6 +289,7 @@ pub mod web {
                     StatusCode::BAD_REQUEST,
                 ),
                 LoginError::DatabaseError(e) => {
+                    info!("[ErrMap] Msg: {e}");
                     JsonErrorResponse::new(None, e, StatusCode::BAD_REQUEST)
                 }
                 LoginError::UserNotFound => JsonErrorResponse::new(

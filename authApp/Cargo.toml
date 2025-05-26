@@ -30,3 +30,5 @@ env_logger = "0.10" # Or use tracing for more advanced logging
 chrono = "0.4.38"
 pbkdf2 = { version = "0.12.2", features = ["simple"] }
 thiserror = "2.0.11"
+maplit = "1.0.2"
+dashmap = "6.1.0"

@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
+use serde_json::Value;
+use std::{collections::HashMap, time::Duration};
 use strum_macros::Display;
 
 type ID = String;
@@ -25,8 +26,25 @@ pub trait RealmSettings {
     fn get_password_reset_token_duration(&self) -> Duration;
 }
 
+enum Theme {
+    Dark, 
+    Dracuala,
+    Default
+}
+
+// pub type Metadata: HashMap<String, Value>;
+
+enum RealmMetaData {
+    GenericMap(HashMap<String, Value>),
+
+
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UserRealmSettings {
+    pub theme: Theme, 
+    #[serde(rename(serialize="metadata"))]
+    pub metadata: RealmMetaData,
     pub is_confirmation_required: bool,
 }
 
@@ -64,3 +82,13 @@ impl RealmSettings for InternalRealmSettings {
         self.password_reset_token_duration.clone()
     }
 }
+
+impl From<RealmSettings> for UserRealmSettings {
+    fn from(value: RealmSettings) -> Self {
+        UserRealmSettings { 
+            theme: Theme::Default, 
+            metadata: HashMap::new(), 
+            is_confirmation_required: value.is_confirmation_required()
+        }
+    }
+} 

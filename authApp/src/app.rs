@@ -9,11 +9,14 @@ pub enum APIError {
     #[error("Incorrect password")]
     IncorrectPassword,
 
-    #[error("Bad Request")]
-    DBException(DBError),
+    #[error("{0}")]
+    DBException(#[from] DBError),
 
     #[error("User creation failed")]
-    UserCreationFailed()
+    UserCreationFailed(),
+
+    #[error("Missing realm header")]
+    MissingRealmHeader,
 }
 
 pub type APIResult<T, E = APIError> = Result<T, E>;

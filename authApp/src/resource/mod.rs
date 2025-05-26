@@ -1,7 +1,9 @@
 pub mod customer {
+    use std::fmt;
+
     use crate::domain::customer::{dto::CreateUser, LoginRequest, LoginRequestArguments, User};
     use crate::domain::infra::web::auth::verify_login;
-    use crate::domain::infra::web::{JsonErrorResponse, LoginError, RealmFinder};
+    use crate::domain::infra::web::{JsonErrorResponse, LoginError, RealmFinder, TokenFinder};
     use crate::service::customer_service::{AuthenticatorService, CustomerService};
     use crate::AppState;
 
@@ -36,29 +38,49 @@ pub mod customer {
             .headers()
             .get_realm()
             .ok_or(LoginError::MissingRealmHeader)?;
-        
-        let login_request = json.0;
 
-        let data = match req.app_data::<Data<AppState>>() {
-            Some(data) => data.clone(),
+        let token = req.headers().get_token();
+
+        match token {
+            Ok(tk) => {
+              let is_valid = verify_login(tk, &req);
+              if is_valid {
+                  
+              }
+            },
             None => {
-                return Err(LoginErrorResponse::new(
-                    None,
-                    "Failed to find realm".to_string(),
-                    StatusCode::NOT_FOUND,
-                ))
+                let login_request = json.0;
+
+                let data = match req.app_data::<Data<AppState>>() {
+                    Some(data) => data.clone(),
+                    None => {
+                        return Err(LoginErrorResponse::new(
+                            None,
+                            "Failed to find realm".to_string(),
+                            StatusCode::NOT_FOUND,
+                        ))
+                    }
+                };
+        
+                let login_user_data: Result<LoginUserData<'_>, _> = fetch_user_data(&data, &realm, &login_request).await;
+                match login_user_data {
+                    Err(err) => {
+                        info!("[Login]: Err - {:?}", err);
+                        return Err(err.into());
+                    }
+                    Ok(user_data) => {
+                        authenticate_user(user_data, login_request).await
+                    }
+                }
             }
-        };
-
-        let login_user_data = fetch_user_data(&data, &realm, &login_request).await?;
-
-        authenticate_user(login_user_data, login_request).await
+        } 
     }
 
     async fn authenticate_user<'a>(
         login_user_data: LoginUserData<'a>,
         login_request: LoginRequest,
     ) -> Result<HttpResponse, LoginErrorResponse> {
+        info!("[Authentication] Authenticating User: {}", &login_user_data.user.username);
         let login_arg = LoginRequestArguments {
             login_request,
             user: login_user_data.user,
@@ -69,7 +91,9 @@ pub mod customer {
         let is_ok = verify_login(&login_arg, login_user_data.realm, itr);
 
         if is_ok {
-            let token = AuthenticatorService::initialise_token(&login_arg.user);
+            let token = AuthenticatorService::initialise_token(
+                &login_arg.user, 
+                login_user_data.realm_settings_provider.clone());
             Ok(HttpResponse::Ok().json(token))
         } else {
             Err(LoginErrorResponse::new(
@@ -90,7 +114,9 @@ pub mod customer {
         let rlm = realm.clone();
         let result = web::block(move || CustomerService::fetch_user_by_name(&username, &rlm, &db))
             .await
-            .map_err(|e| LoginError::DatabaseError(e.to_string()))?;
+            .map_err(|e| {
+                LoginError::DatabaseError(e.to_string())
+            })?;
 
         match result {
             Ok(None) => Err(LoginError::UserNotFound),
@@ -99,7 +125,9 @@ pub mod customer {
                 realm: realm.clone(),
                 realm_settings_provider: data.realm_settings_provider.as_ref(),
             }),
-            Err(err) => Err(LoginError::DatabaseError(err.to_string()))
+            Err(err) => {
+                Err(LoginError::DatabaseError(err.to_string()))
+            }
         }
     }
 
