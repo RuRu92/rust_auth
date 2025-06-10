@@ -3,12 +3,11 @@ use actix_web::body::{BoxBody, MessageBody};
 use actix_web::http::header::{ContentType, HeaderName, HeaderValue, CONTENT_TYPE};
 use actix_web::http::StatusCode;
 use actix_web::{HttpResponse, ResponseError};
-use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
+use jsonwebtoken::{decode, encode, TokenData, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize, Serializer};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use strum_macros::Display;
-
 
 pub mod web {
     use crate::domain::customer::{LoginRequest, LoginRequestArguments, User};
@@ -23,6 +22,7 @@ pub mod web {
     use jsonwebtoken::errors::Error;
     use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
     use log::info;
+    use mysql_common::serde_json;
     use rand::distr::Open01;
     use ring::digest::SHA256;
     use ring::pbkdf2 as pbk;
@@ -33,10 +33,8 @@ pub mod web {
     use std::fmt;
     use std::fmt::{Debug, Display, Formatter};
     use std::num::NonZeroU32;
-    use mysql_common::serde_json;
 
-    use crate::app::APIError;
-
+    use crate::app::error::APIError;
 
     pub trait RealmFinder {
         type Realm;
@@ -69,31 +67,34 @@ pub mod web {
     }
 
     pub mod auth {
-        use crate::app::APIError;
+        use crate::app::error::APIError;
         use crate::domain::customer::LoginRequestArguments;
         use crate::domain::realm::{RealmName, UserRealmSettings};
         use data_encoding::HEXUPPER;
-        use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
-        use serde::{Deserialize, Serialize};
-        use std::num::NonZeroU32;
+        use jsonwebtoken::{
+            decode, encode, Algorithm, DecodingKey, EncodingKey, Header, TokenData, Validation
+        };
+        use mysql_common::serde_json;
         use ring::digest::SHA256;
         use ring::pbkdf2 as pbk;
         use ring::rand::SecureRandom;
-        use mysql_common::serde_json;
+        use serde::{Deserialize, Serialize};
+        use std::num::NonZeroU32;
 
         type Token = String;
 
         pub trait Authorizer {
             type Token;
-        
-        
-            fn verify_auth_token(incoming_token: &Self::Token, user_token: &Self::Token) -> Result<AppToken, APIError>;
-            
-            fn get_auth_token(claim: &AppToken, secret: String) -> Token;
-            
-            fn verify_login(args: &LoginRequestArguments, realm: RealmName, iter: u32) -> bool;
+
+            fn decode_token(token: &str, secret: &str) ->  AppToken;
+
+            fn verify_auth_token(incoming_token: &Self::Token, user_token: &Self::Token) -> bool;
+
+            fn get_auth_token(header: &Header, claim: &AppToken, secret: String) -> Token;
+
+            fn verify_login(args: &LoginRequestArguments, realm: &str, iter: u32) -> bool;
         }
-    
+
         pub struct AppAuthorizer;
 
         #[derive(Debug, Serialize, Deserialize)]
@@ -105,26 +106,33 @@ pub mod web {
             pub expiry: i64,
         }
 
-
-        impl Authorizer for AppAuthorizer {
+       impl Authorizer for AppAuthorizer {
             type Token = String;
 
-            // type WebToken = String;
-            fn get_auth_token(claim: &AppToken, secret: String) -> Token {
-                
-            }
-            
-            
-            fn verify_auth_token(incoming_token: &Self::Token, user_token: &Self::Token) -> Result<AppToken, APIError> {
-                todo!()
+            fn decode_token(token: &str, secret: &str) -> AppToken {
+                decode::<AppToken>(
+                    token,
+                    &DecodingKey::from_secret(secret.as_bytes()),
+                    &Validation::new(Algorithm::HS256),
+                ).unwrap()
+                .claims
             }
 
-            fn verify_login(args: &LoginRequestArguments, realm: RealmName, iter: u32) -> bool {
+            // type WebToken = String;
+            fn get_auth_token(header: &Header, claim: &AppToken, secret: String) -> Token {
+                encode(header, claim, &EncodingKey::from_secret(secret.as_bytes())).unwrap()
+            }
+
+            fn verify_auth_token(incoming_token: &Self::Token, user_token: &Self::Token) -> bool {
+                incoming_token == user_token
+            }
+
+            fn verify_login(args: &LoginRequestArguments, realm: &str, iter: u32) -> bool {
                 let login_request = &args.login_request;
                 let salt = format!("{}|{}", &login_request.username, realm).into_bytes();
-    
+
                 let decoded_pass = HEXUPPER.decode(args.user.hashed_pass.as_bytes()).unwrap();
-    
+
                 let verified = pbk::verify(
                     pbk::PBKDF2_HMAC_SHA256,
                     NonZeroU32::new(iter).unwrap(),
@@ -132,46 +140,40 @@ pub mod web {
                     login_request.password.as_bytes(),
                     &decoded_pass,
                 );
-    
+
                 verified.is_ok()
             }
         }
     }
 
+    #[cfg(test)]
+    mod tests {
+        use crate::domain::infra::web::auth::{AppAuthorizer, AppToken, Authorizer};
+        use crate::domain::realm::{Realm, RealmName, RealmSettings, UserRealmSettings};
+        use actix_web::http::StatusCode;
+        use chrono::{Days, Utc};
+        use jsonwebtoken::{encode, EncodingKey, Header};
+        use mysql_common::serde_json;
+        use std::time::Duration;
 
-        
+        #[test]
+        fn test_auth_token() {
+            let mut header = Header::new(jsonwebtoken::Algorithm::ES256);
+            let realm = RealmName::from("test");
+            let realm_settings = UserRealmSettings::default();
 
-        #[cfg(test)]
-        mod tests {
-            use crate::domain::infra::web::auth::{AppAuthorizer, AppToken, Authorizer};
-            use crate::domain::realm::{Realm, RealmName, RealmSettings, UserRealmSettings};
-            use actix_web::http::StatusCode;
-            use chrono::{Days, Utc};
-            use jsonwebtoken::EncodingKey;
-            use std::time::Duration;
-            use mysql_common::serde_json;
+            let dt = Utc::now().checked_add_days(Days::new(90));
 
-            #[test]
-            fn test_auth_token() {
-                let realm = RealmName::from("test");
-                let realm_settings = UserRealmSettings {
-                    is_confirmation_required: false,
-                };
-
-                let dt = Utc::now().checked_add_days(Days::new(90));
-
-                let claim = AppToken {
-                    username: "ruru".to_string(),
-                    password: "passw0rd".to_string(),
-                    realm_settings,
-                    realm,
-                    expiry: dt.unwrap().timestamp(),
-                };
-
-                let token = AppAuthorizer::get_auth_token(&claim);
-                print!("Token - {}\n", token);
-                assert_eq!(token.len(), 268);
-            }
+            let claim = AppToken {
+                username: "ruru".to_string(),
+                password: "passw0rd".to_string(),
+                realm_settings,
+                realm,
+                expiry: dt.unwrap().timestamp(),
+            };
+            let token = encode(&header, &claim, &EncodingKey::from_secret("test".as_bytes())).unwrap();
+            print!("Token - {}\n", token);
+            assert_eq!(token.len(), 268);
         }
     }
 
@@ -191,9 +193,12 @@ pub mod web {
     }
 
     impl<T> JsonErrorResponse<T> {
-
         pub fn empty_ok() -> JsonErrorResponse<T> {
-            return JsonErrorResponse { body: None, message: "".to_string(), status_code: StatusCode::OK };
+            return JsonErrorResponse {
+                body: None,
+                message: "".to_string(),
+                status_code: StatusCode::OK,
+            };
         }
 
         pub fn new(
@@ -223,7 +228,6 @@ pub mod web {
         pub fn set_status(&mut self, status_code: StatusCode) {
             self.status_code = status_code;
         }
-
     }
 
     impl<T: Serialize> Display for JsonErrorResponse<T> {

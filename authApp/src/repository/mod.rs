@@ -2,13 +2,13 @@ use log::log;
 use crate::domain::customer::dto::{CreateUser, UserMetadata};
 use crate::domain::customer::{Address, Role, User, UserWithAddress};
 use crate::domain::realm::{Realm, RealmName};
-use crate::Principal;
 use mysql::error::Result;
 use mysql::prelude::Queryable;
 use mysql::{params, Transaction};
 use mysql_common::prelude::FromRow;
 use uuid::Uuid;
-use crate::app::{APIError, APIResult};
+use crate::app::error::{APIError, APIResult};
+use crate::app::Principal;
 
 pub mod realm;
 

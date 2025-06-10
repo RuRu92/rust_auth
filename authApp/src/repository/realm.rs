@@ -1,11 +1,13 @@
 use mysql::AccessMode;
-use rand::Rng;
+use rand::distr::Alphanumeric;
+use rand::{rng, Rng};
+use core::hash;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use crate::db::{ExecutionContext, DB};
-use crate::domain::realm::{InternalRealmSettings, Realm, RealmName, RealmSettings, UserRealmSettings};
+use crate::domain::realm::{InternalRealmSettings, Realm, RealmName, RealmSettings, RealmMetaData, Theme, UserRealmSettings};
 
 pub struct RealmSettingProvider {
     settings: Arc<HashMap<RealmName, RwLock<InternalRealmSettings>>>,
@@ -15,10 +17,15 @@ pub struct RealmSettingProvider {
 impl RealmSettingProvider {
     pub fn init(db: Arc<DB>) -> RealmSettingProvider {
         let realms = vec!["rj.fg", "rj.wire", "rj.fa", "rj.haven"];
+        let hash: String = rng()
+            .sample_iter(&Alphanumeric)
+            .take(36)
+            .map(char::from)
+            .collect();
 
         let mut realm_settings = HashMap::new();
         for r in realms {
-            let _ = &realm_settings.insert(
+            &realm_settings.insert(
                 r.to_string(),
                 RwLock::new(InternalRealmSettings {
                     is_confirmation_required: false,
@@ -27,6 +34,8 @@ impl RealmSettingProvider {
                     authentication_token_duration: std::time::Duration::new(120, 0),
                     refresh_token_duration: std::time::Duration::new(60, 0),
                     password_reset_token_duration: std::time::Duration::new(30, 0),
+                    realm_secret: format!("{r}{hash}|")
+
                 }),
             );
         }
@@ -34,6 +43,19 @@ impl RealmSettingProvider {
         RealmSettingProvider {
             settings: Arc::new(realm_settings),
             db,
+        }
+    }
+
+    pub fn into_user_settings(&self, realm: &str) -> UserRealmSettings {
+        let realm_settings = self.settings.get(realm)
+            .expect("Failed to get realm settings")
+            .read()
+            .unwrap();
+        
+        UserRealmSettings {
+            theme: Theme::Default,
+            metadata: RealmMetaData::GenericMap(HashMap::new()),
+            is_confirmation_required: realm_settings.is_confirmation_required,
         }
     }
 
@@ -91,12 +113,22 @@ impl RealmSettingProvider {
             .realm_salt_itr()
     }
 
+    pub fn get_realm_secret(&self, realm: &str) -> String {
+        self.settings
+            .get(realm)
+            .expect("Failed to get realm settings")
+            .read()
+            .unwrap()
+            .get_secret()
+    }
+
     pub fn reload(&self) -> &Self {
         let settings = &self.settings.clone();
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         for (realm, value) in settings.as_ref().iter() {
             let mut lock = value.write().unwrap();
+            let secret = lock.realm_secret.as_str();
             *lock = InternalRealmSettings {
                 is_confirmation_required: false,
                 is_guest_allowed: false,
@@ -104,6 +136,7 @@ impl RealmSettingProvider {
                 authentication_token_duration: Duration::new(rng.gen_range(0..180), 0),
                 refresh_token_duration: Duration::new(rng.gen_range(0..90), 0),
                 password_reset_token_duration: Duration::new(rng.gen_range(0..50), 0),
+                realm_secret: secret.to_owned(),
             };
             println!("updated realm settings for {}", realm);
         }

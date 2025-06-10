@@ -7,39 +7,40 @@ pub mod customer_service {
     use crate::domain::realm::{InternalRealmSettings, RealmName, RealmSettings, UserRealmSettings};
     use crate::repository::realm::RealmSettingProvider;
     use crate::repository::{AddressStorage, Repository, UserStorage};
-    use crate::{AppState, Principal};
+    use crate::app::{AppState, Principal};
     use actix_web::http::header::{HeaderMap, HeaderValue};
     use mysql::{AccessMode, Error, Result, Transaction};
     use std::str::FromStr;
     use std::sync::Arc;
     use std::{clone::Clone, option::Option};
     use chrono::{Days, Utc};
-    use crate::app::{APIError, APIResult};
+    use crate::app::error::{APIError, APIResult};
     use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 
 
     pub struct AuthenticatorService {}
 
     impl AuthenticatorService {
-        pub fn initialise_token(realm: RealmName, data: &User, realm_settings_provider: RealmSettingProvider) -> String {
+        pub fn initialise_token(realm: &str, data: &User, realm_settings_provider: &RealmSettingProvider) -> String {
 
             let dt = Utc::now().checked_add_days(Days::new(60));
 
             let token = AppToken {
-                username: data.username,
-                password: data.hashed_pass,
-                realm_settings,
-                realm: realm,
+                username: data.username.clone(),
+                password: data.hashed_pass.clone(),
+                realm_settings: realm_settings_provider.into_user_settings(&realm),
+                realm: realm.to_string(),
                 expiry: dt.unwrap().timestamp(),
             };
-
-            let secret = format!("{username}|{realm}");
+            
+            let secret = realm_settings_provider.get_realm_secret(&realm);
             let header = Header::new(Algorithm::HS512);
             return encode(
                 &header,
-                &claim,
-                &EncodingKey::from_secret(secret)).unwrap()
-                .unwrap()
+                &token,
+                &EncodingKey::from_secret(secret.as_bytes())
+                )
+                .unwrap();
         }
     }
 

@@ -2,39 +2,35 @@
 #![allow(dead_code)]
 #![allow(warnings)]
 
-use domain::realm::Realm;
-use env_logger::{self, Env};
-use actix_web::{middleware as actix_mw, rt as actix_rt, web, App, HttpServer};
-use serde::{Deserialize, Serialize};
-use std::collections::{hash_map, HashMap};
-use std::sync::Arc;
-
+mod app;
 mod db;
 mod domain;
 mod repository;
 mod resource;
 mod route;
 mod service;
-mod app;
+
 pub mod middleware;
+
+
+use actix_web::{middleware as actix_mw, rt as actix_rt, web, App, HttpServer};
+use domain::realm::Realm;
+use domain::customer::Role;
+use env_logger::{self, Env};
+use serde::{Deserialize, Serialize};
+use std::collections::{hash_map, HashMap};
+use std::pin::Pin;
+use std::sync::Arc;
+    
+use crate::middleware::auth::PathGuard;
+
+
 
 const URL: &str = "mysql://root:password@localhost:3306/auth";
 
 use crate::db::ExecutionContext;
 use crate::repository::realm::RealmSettingProvider;
 use route::routes;
-
-#[derive(Deserialize, Serialize, Debug)]
-pub struct Principal {
-    id: String,
-    role: String,
-    name: String,
-}
-
-pub struct AppState {
-    realm_settings_provider: Arc<RealmSettingProvider>,
-    execution_context: ExecutionContext,
-}
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -50,7 +46,7 @@ async fn main() -> std::io::Result<()> {
 
     actix_rt::spawn(refresh_realm_settings(provider));
 
-    let app_data = web::Data::new(AppState {
+    let app_data = web::Data::new(app::AppState {
         realm_settings_provider,
         execution_context: ExecutionContext { db },
     });
@@ -63,10 +59,7 @@ async fn main() -> std::io::Result<()> {
             .wrap(actix_mw::Logger::default())
             .wrap(actix_mw::Logger::new("%a - %r - %P %{User-Agent}i"))
             .wrap(middleware::auth::AuthMiddleware {
-                 secret: |realm, username| {
-                    format!("{realm}|{username}")
-                 },
-                 routing_table: initRoutingTable()
+                secret: Box::new(|realm, username| format!("{realm}|{username}")),
             })
             .configure(routes)
     })
@@ -86,23 +79,3 @@ async fn refresh_realm_settings(arc: Arc<RealmSettingProvider>) {
     }
 }
 
-fn initRoutingTable() -> HashMap<String, middleware::auth::PathGuard> {
-    
-    use middleware::auth::PathGuard;
-    use crate::domain::customer::Role;
-    
-    hashmap! {
-        // Open paths (accessible to anyone)
-        "/api" => PathGuard::Open,
-        "/api/customer" => PathGuard::Open,
-        "/api/customer/{user_id}" => PathGuard::Open,
-        "/api/realm/login" => PathGuard::Open,
-
-        // Authorized paths (requires a valid token)
-        "/api/realm" => PathGuard::Authorized,
-        "/api/realm/{realm}" => PathGuard::Authorized,
-
-        // Guarded paths (requires specific roles)
-        "/api/admin" => PathGuard::Guarded(Role::Admin),
-    }
-}

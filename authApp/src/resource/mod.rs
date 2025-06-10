@@ -2,10 +2,10 @@ pub mod customer {
     use std::fmt;
 
     use crate::domain::customer::{dto::CreateUser, LoginRequest, LoginRequestArguments, User};
-    use crate::domain::infra::web::auth::verify_login;
+    use crate::domain::infra::web::auth::{AppAuthorizer, Authorizer};
     use crate::domain::infra::web::{JsonErrorResponse, LoginError, RealmFinder, TokenFinder};
     use crate::service::customer_service::{AuthenticatorService, CustomerService};
-    use crate::AppState;
+    use crate::app::AppState;
 
     use crate::domain::realm::RealmName;
     use crate::repository::realm::RealmSettingProvider;
@@ -41,14 +41,6 @@ pub mod customer {
 
         let token = req.headers().get_token();
 
-        match token {
-            Ok(tk) => {
-              let is_valid = verify_login(tk, &req);
-              if is_valid {
-                  
-              }
-            },
-            None => {
                 let login_request = json.0;
 
                 let data = match req.app_data::<Data<AppState>>() {
@@ -71,10 +63,10 @@ pub mod customer {
                     Ok(user_data) => {
                         authenticate_user(user_data, login_request).await
                     }
-                }
             }
-        } 
-    }
+            
+    } 
+    
 
     async fn authenticate_user<'a>(
         login_user_data: LoginUserData<'a>,
@@ -87,11 +79,12 @@ pub mod customer {
         };
         let itr = login_user_data
             .realm_settings_provider
-            .get_realm_salt_itr(login_user_data.realm.as_str());
-        let is_ok = verify_login(&login_arg, login_user_data.realm, itr);
+            .get_realm_salt_itr(&login_user_data.realm);
+        let is_ok = AppAuthorizer::verify_login(&login_arg, &login_user_data.realm, itr);
 
         if is_ok {
             let token = AuthenticatorService::initialise_token(
+                &login_user_data.realm,
                 &login_arg.user, 
                 login_user_data.realm_settings_provider.clone());
             Ok(HttpResponse::Ok().json(token))
@@ -265,7 +258,7 @@ pub mod admin {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::AppState;
+    use crate::app::AppState;
     use actix_web::{http, test, web::Data, App};
 
     // Imports depending on the structure of your project

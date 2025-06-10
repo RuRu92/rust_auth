@@ -6,7 +6,7 @@ use std::thread::sleep;
 use chrono::Duration;
 use mysql::AccessMode::{ReadOnly, ReadWrite};
 use mysql::prelude::Queryable;
-use crate::app::{APIError, APIResult};
+use crate::app::error::{APIError, APIResult};
 
 pub struct DB {
     pub pool: Pool,

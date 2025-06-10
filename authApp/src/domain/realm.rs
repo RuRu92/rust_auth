@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, convert::TryFrom, time::Duration};
 use strum_macros::Display;
 
 type ID = String;
@@ -24,9 +24,11 @@ pub trait RealmSettings {
     fn get_refresh_token_duration(&self) -> Duration;
 
     fn get_password_reset_token_duration(&self) -> Duration;
-}
 
-enum Theme {
+    fn get_secret(&self) -> String;
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub enum Theme {
     Dark, 
     Dracuala,
     Default
@@ -34,10 +36,10 @@ enum Theme {
 
 // pub type Metadata: HashMap<String, Value>;
 
-enum RealmMetaData {
+#[derive(Debug, Serialize, Deserialize)]
+pub enum RealmMetaData {
     GenericMap(HashMap<String, Value>),
-
-
+    
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -48,6 +50,23 @@ pub struct UserRealmSettings {
     pub is_confirmation_required: bool,
 }
 
+impl UserRealmSettings {
+    pub fn from_realm_settings(value: &dyn RealmSettings) -> Self {
+        UserRealmSettings {
+            theme: Theme::Default,
+            metadata: RealmMetaData::GenericMap(HashMap::default()),
+            is_confirmation_required: value.is_confirmation_required(),
+        }
+    }
+}
+
+impl Default for UserRealmSettings {
+    fn default() -> Self {
+        Self { theme: Theme::Default, metadata: RealmMetaData::GenericMap(HashMap::default()), is_confirmation_required: false }
+    }
+}
+
+
 pub struct InternalRealmSettings {
     pub is_confirmation_required: bool,
     pub is_guest_allowed: bool,
@@ -55,6 +74,7 @@ pub struct InternalRealmSettings {
     pub authentication_token_duration: Duration,
     pub refresh_token_duration: Duration,
     pub password_reset_token_duration: Duration,
+    pub realm_secret: String,
 }
 
 impl RealmSettings for InternalRealmSettings {
@@ -81,14 +101,8 @@ impl RealmSettings for InternalRealmSettings {
     fn get_password_reset_token_duration(&self) -> Duration {
         self.password_reset_token_duration.clone()
     }
-}
 
-impl From<RealmSettings> for UserRealmSettings {
-    fn from(value: RealmSettings) -> Self {
-        UserRealmSettings { 
-            theme: Theme::Default, 
-            metadata: HashMap::new(), 
-            is_confirmation_required: value.is_confirmation_required()
-        }
+    fn get_secret(&self) -> String {
+        self.realm_secret.clone()
     }
-} 
+}

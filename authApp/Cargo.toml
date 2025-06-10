@@ -32,3 +32,5 @@ pbkdf2 = { version = "0.12.2", features = ["simple"] }
 thiserror = "2.0.11"
 maplit = "1.0.2"
 dashmap = "6.1.0"
+debug-ignore = "1.0.5"
+lazy_static = "1.5.0"

@@ -77,7 +77,7 @@ pub mod customer {
         use pbkdf2::Pbkdf2;
         use rand::rngs::OsRng;
         use serde::{Deserialize, Serialize};
-        use crate::app::{APIError, APIResult};
+        use crate::app::error::{APIError, APIResult};
 
         #[derive(Serialize, Deserialize, Clone, Debug)]
         pub struct CreateUser {
