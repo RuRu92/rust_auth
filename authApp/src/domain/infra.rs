@@ -3,7 +3,9 @@ use actix_web::body::{BoxBody, MessageBody};
 use actix_web::http::header::{ContentType, HeaderName, HeaderValue, CONTENT_TYPE};
 use actix_web::http::StatusCode;
 use actix_web::{HttpResponse, ResponseError};
-use jsonwebtoken::{decode, encode, TokenData, Algorithm, DecodingKey, EncodingKey, Header, Validation};
+use jsonwebtoken::{
+    decode, encode, Algorithm, DecodingKey, EncodingKey, Header, TokenData, Validation,
+};
 use serde::{Deserialize, Serialize, Serializer};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
@@ -17,6 +19,7 @@ pub mod web {
     use actix_web::http::StatusCode;
     use actix_web::web::Json;
     use actix_web::{HttpResponse, ResponseError};
+    use base64::{engine::general_purpose, Engine as _};
     use chrono::{DateTime, Utc};
     use data_encoding::HEXUPPER;
     use jsonwebtoken::errors::Error;
@@ -70,10 +73,13 @@ pub mod web {
         use crate::app::error::APIError;
         use crate::domain::customer::LoginRequestArguments;
         use crate::domain::realm::{RealmName, UserRealmSettings};
+        use base64::engine::general_purpose;
+        use base64::Engine;
         use data_encoding::HEXUPPER;
         use jsonwebtoken::{
-            decode, encode, Algorithm, DecodingKey, EncodingKey, Header, TokenData, Validation
+            decode, encode, Algorithm, DecodingKey, EncodingKey, Header, TokenData, Validation,
         };
+        use log::{error, info};
         use mysql_common::serde_json;
         use ring::digest::SHA256;
         use ring::pbkdf2 as pbk;
@@ -86,7 +92,7 @@ pub mod web {
         pub trait Authorizer {
             type Token;
 
-            fn decode_token(token: &str, secret: &str) ->  AppToken;
+            fn decode_token(token: &str, secret: &str) -> AppToken;
 
             fn verify_auth_token(incoming_token: &Self::Token, user_token: &Self::Token) -> bool;
 
@@ -106,7 +112,7 @@ pub mod web {
             pub expiry: i64,
         }
 
-       impl Authorizer for AppAuthorizer {
+        impl Authorizer for AppAuthorizer {
             type Token = String;
 
             fn decode_token(token: &str, secret: &str) -> AppToken {
@@ -114,7 +120,8 @@ pub mod web {
                     token,
                     &DecodingKey::from_secret(secret.as_bytes()),
                     &Validation::new(Algorithm::HS256),
-                ).unwrap()
+                )
+                .unwrap()
                 .claims
             }
 
@@ -130,18 +137,33 @@ pub mod web {
             fn verify_login(args: &LoginRequestArguments, realm: &str, iter: u32) -> bool {
                 let login_request = &args.login_request;
                 let salt = format!("{}|{}", &login_request.username, realm).into_bytes();
+                let hashed_pass = args.user.hashed_pass.clone();
+                info!("[verifyLogin] User pass = {hashed_pass}");
 
-                let decoded_pass = HEXUPPER.decode(args.user.hashed_pass.as_bytes()).unwrap();
+                let phc_parts = &args.user.hashed_pass.split('$').collect::<Vec<&str>>();
 
-                let verified = pbk::verify(
-                    pbk::PBKDF2_HMAC_SHA256,
-                    NonZeroU32::new(iter).unwrap(),
-                    &salt,
-                    login_request.password.as_bytes(),
-                    &decoded_pass,
-                );
-
-                verified.is_ok()
+                if phc_parts.len() == 5 {
+                    let hash_b64 = phc_parts[4];
+                    match general_purpose::STANDARD.decode(hash_b64) {
+                        Ok(decoded_pass) => {
+                            let verified = pbk::verify(
+                                pbk::PBKDF2_HMAC_SHA256,
+                                NonZeroU32::new(iter).unwrap(),
+                                &salt,
+                                login_request.password.as_bytes(),
+                                &decoded_pass,
+                            );
+                            verified.is_ok()
+                        }
+                        Err(err) => {
+                            error!("[verifyLogin] Failed to decode password. Error = {err}");
+                            return false;
+                        }
+                    }
+                } else {
+                    error!("[verifyLogin] Invalid PHC string format");
+                    false
+                }
             }
         }
     }
@@ -171,7 +193,12 @@ pub mod web {
                 realm,
                 expiry: dt.unwrap().timestamp(),
             };
-            let token = encode(&header, &claim, &EncodingKey::from_secret("test".as_bytes())).unwrap();
+            let token = encode(
+                &header,
+                &claim,
+                &EncodingKey::from_secret("test".as_bytes()),
+            )
+            .unwrap();
             print!("Token - {}\n", token);
             assert_eq!(token.len(), 268);
         }

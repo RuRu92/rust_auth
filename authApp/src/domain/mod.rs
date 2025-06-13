@@ -48,7 +48,7 @@ pub mod customer {
         pub user_id: String,
         pub username: String,
         pub hashed_pass: String,
-        pub auth_token: String,
+        pub auth_token: Option<String>,
         pub role: Role,
     }
 
