@@ -177,20 +177,20 @@ where
 
                 if let Some(auth_token) = headers.get_token() {
                     let realm = realm_.clone().unwrap();
-                    match verify_token(&req, realm_.clone(), auth_token) {
+                    return match verify_token(&req, realm_.clone(), auth_token) {
                         Ok(is_valid) => {
                             if is_valid {
                                 info!("[authMiddleware-{realm}] - Authorized.");
-                                return self.to_pinned_box(req);
+                                self.to_pinned_box(req)
                             } else {
-                                return Box::pin(async {
+                                Box::pin(async {
                                     Err(actix_web::error::ErrorUnauthorized(
                                         "Unauthorized access, missing or invalid token",
                                     ))
-                                });
+                                })
                             }
                         }
-                        Err(err) => return Box::pin(async { Err(err) }),
+                        Err(err) => Box::pin(async { Err(err) }),
                     }
                 }
                 Box::pin(async {

@@ -86,6 +86,8 @@ pub mod web {
         use ring::rand::SecureRandom;
         use serde::{Deserialize, Serialize};
         use std::num::NonZeroU32;
+        use pbkdf2::password_hash::{PasswordHash, PasswordVerifier};
+        use pbkdf2::Pbkdf2;
 
         type Token = String;
 
@@ -121,8 +123,8 @@ pub mod web {
                     &DecodingKey::from_secret(secret.as_bytes()),
                     &Validation::new(Algorithm::HS256),
                 )
-                .unwrap()
-                .claims
+                    .unwrap()
+                    .claims
             }
 
             // type WebToken = String;
@@ -135,34 +137,18 @@ pub mod web {
             }
 
             fn verify_login(args: &LoginRequestArguments, realm: &str, iter: u32) -> bool {
-                let login_request = &args.login_request;
-                let salt = format!("{}|{}", &login_request.username, realm).into_bytes();
                 let hashed_pass = args.user.hashed_pass.clone();
                 info!("[verifyLogin] User pass = {hashed_pass}");
 
-                let phc_parts = &args.user.hashed_pass.split('$').collect::<Vec<&str>>();
 
-                if phc_parts.len() == 5 {
-                    let hash_b64 = phc_parts[4];
-                    match general_purpose::STANDARD.decode(hash_b64) {
-                        Ok(decoded_pass) => {
-                            let verified = pbk::verify(
-                                pbk::PBKDF2_HMAC_SHA256,
-                                NonZeroU32::new(iter).unwrap(),
-                                &salt,
-                                login_request.password.as_bytes(),
-                                &decoded_pass,
-                            );
-                            verified.is_ok()
-                        }
-                        Err(err) => {
-                            error!("[verifyLogin] Failed to decode password. Error = {err}");
-                            return false;
-                        }
+                match PasswordHash::new(&hashed_pass) {
+                    Ok(pwd) =>
+                        Pbkdf2.verify_password(&args.login_request.password.as_bytes(), &pwd)
+                            .is_ok(),
+                    Err(_) => {
+                        error!("[verifyLogin] Failed to decode password. Error = {err}");
+                        false
                     }
-                } else {
-                    error!("[verifyLogin] Invalid PHC string format");
-                    false
                 }
             }
         }
@@ -198,7 +184,7 @@ pub mod web {
                 &claim,
                 &EncodingKey::from_secret("test".as_bytes()),
             )
-            .unwrap();
+                .unwrap();
             print!("Token - {}\n", token);
             assert_eq!(token.len(), 268);
         }
