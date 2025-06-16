@@ -6,6 +6,7 @@ use actix_web::{HttpResponse, ResponseError};
 use jsonwebtoken::{
     decode, encode, Algorithm, DecodingKey, EncodingKey, Header, TokenData, Validation,
 };
+use log::info;
 use serde::{Deserialize, Serialize, Serializer};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
@@ -62,7 +63,8 @@ pub mod web {
         type Token = String;
 
         fn get_token(&self) -> Option<Self::Token> {
-            self.get("Authorization")
+            info!("[get_token] Getting token from headers: {:?}", self);
+            self.get("authorization")
                 .and_then(|auth: &HeaderValue| auth.to_str().ok()) // Convert HeaderValue to &str
                 .and_then(|auth_str| auth_str.strip_prefix("Bearer ")) // Strip "Bearer " prefix
                 .map(|token| token.to_string()) // Convert to String
@@ -81,13 +83,13 @@ pub mod web {
         };
         use log::{error, info};
         use mysql_common::serde_json;
+        use pbkdf2::password_hash::{PasswordHash, PasswordVerifier};
+        use pbkdf2::Pbkdf2;
         use ring::digest::SHA256;
         use ring::pbkdf2 as pbk;
         use ring::rand::SecureRandom;
         use serde::{Deserialize, Serialize};
         use std::num::NonZeroU32;
-        use pbkdf2::password_hash::{PasswordHash, PasswordVerifier};
-        use pbkdf2::Pbkdf2;
 
         type Token = String;
 
@@ -111,7 +113,8 @@ pub mod web {
             pub password: String,
             pub realm_settings: UserRealmSettings,
             pub realm: RealmName,
-            pub expiry: i64,
+            // #[serde(rename = "exp")]
+            pub exp: i64,
         }
 
         impl Authorizer for AppAuthorizer {
@@ -121,10 +124,10 @@ pub mod web {
                 decode::<AppToken>(
                     token,
                     &DecodingKey::from_secret(secret.as_bytes()),
-                    &Validation::new(Algorithm::HS256),
+                    &Validation::new(Algorithm::HS512),
                 )
-                    .unwrap()
-                    .claims
+                .unwrap()
+                .claims
             }
 
             // type WebToken = String;
@@ -140,12 +143,11 @@ pub mod web {
                 let hashed_pass = args.user.hashed_pass.clone();
                 info!("[verifyLogin] User pass = {hashed_pass}");
 
-
                 match PasswordHash::new(&hashed_pass) {
-                    Ok(pwd) =>
-                        Pbkdf2.verify_password(&args.login_request.password.as_bytes(), &pwd)
-                            .is_ok(),
-                    Err(_) => {
+                    Ok(pwd) => Pbkdf2
+                        .verify_password(&args.login_request.password.as_bytes(), &pwd)
+                        .is_ok(),
+                    Err(err) => {
                         error!("[verifyLogin] Failed to decode password. Error = {err}");
                         false
                     }
@@ -157,16 +159,35 @@ pub mod web {
     #[cfg(test)]
     mod tests {
         use crate::domain::infra::web::auth::{AppAuthorizer, AppToken, Authorizer};
+        use crate::domain::infra::web::TokenFinder;
         use crate::domain::realm::{Realm, RealmName, RealmSettings, UserRealmSettings};
+        use crate::service::token;
+        use actix_web::http::header::{HeaderMap, HeaderName, HeaderValue};
         use actix_web::http::StatusCode;
         use chrono::{Days, Utc};
-        use jsonwebtoken::{encode, EncodingKey, Header};
+        use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+        use log::info;
         use mysql_common::serde_json;
         use std::time::Duration;
 
         #[test]
+        fn get_bearer_token_from_header() {
+            let mut header = actix_web::http::header::HeaderMap::new();
+            header.insert(HeaderName::from_static("authorization"), 
+            HeaderValue::from_static("Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJ1c2VybmFtZSI6InJ1cnUiLCJwYXNzd29yZCI6IiRwYmtkZjItc2hhMjU2JGk9NjAwMDAwLGw9MzIkY25WeWRYeHlhaTVvWVhabGJnJHF2QzRUeWcwOWZ3RGJVOWE4dEUwWHlmTDh4NDErblBWbnFoNDBoenhPazAiLCJyZWFsbV9zZXR0aW5ncyI6eyJ0aGVtZSI6IkRlZmF1bHQiLCJtZXRhZGF0YSI6eyJHZW5lcmljTWFwIjp7fX0sImlzX2NvbmZpcm1hdGlvbl9yZXF1aXJlZCI6ZmFsc2V9LCJyZWFsbSI6InJqLmhhdmVuIiwiZXhwaXJ5IjoxNzU1MTU0ODI1fQ.Bu-to4eyDqFXpwcbHuqFRitcmPa9YXpJNy19d7Ru8TDjEyZ0TnclC91IR7YQ8F8EH12ZhZHxr3gCvH_E8zZwqA")
+        );
+
+            let token = header.get_token();
+            assert!(token.is_some());
+            assert_eq!(
+                token.unwrap(),
+                "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJ1c2VybmFtZSI6InJ1cnUiLCJwYXNzd29yZCI6IiRwYmtkZjItc2hhMjU2JGk9NjAwMDAwLGw9MzIkY25WeWRYeHlhaTVvWVhabGJnJHF2QzRUeWcwOWZ3RGJVOWE4dEUwWHlmTDh4NDErblBWbnFoNDBoenhPazAiLCJyZWFsbV9zZXR0aW5ncyI6eyJ0aGVtZSI6IkRlZmF1bHQiLCJtZXRhZGF0YSI6eyJHZW5lcmljTWFwIjp7fX0sImlzX2NvbmZpcm1hdGlvbl9yZXF1aXJlZCI6ZmFsc2V9LCJyZWFsbSI6InJqLmhhdmVuIiwiZXhwaXJ5IjoxNzU1MTU0ODI1fQ.Bu-to4eyDqFXpwcbHuqFRitcmPa9YXpJNy19d7Ru8TDjEyZ0TnclC91IR7YQ8F8EH12ZhZHxr3gCvH_E8zZwqA"
+            );
+        }
+
+        #[test]
         fn test_auth_token() {
-            let mut header = Header::new(jsonwebtoken::Algorithm::ES256);
+            let mut header = Header::new(Algorithm::HS512);
             let realm = RealmName::from("test");
             let realm_settings = UserRealmSettings::default();
 
@@ -177,16 +198,43 @@ pub mod web {
                 password: "passw0rd".to_string(),
                 realm_settings,
                 realm,
-                expiry: dt.unwrap().timestamp(),
+                exp: dt.unwrap().timestamp(),
             };
             let token = encode(
                 &header,
                 &claim,
                 &EncodingKey::from_secret("test".as_bytes()),
             )
-                .unwrap();
+            .unwrap();
             print!("Token - {}\n", token);
-            assert_eq!(token.len(), 268);
+            assert_eq!(token.len(), 354);
+        }
+
+        #[test]
+        fn test_decode_auth_token() {
+            let mut header = HeaderMap::with_capacity(2);
+            let realm = "test";
+
+            // Use lowercase for header name!
+            header.insert(
+                HeaderName::from_static("realm"),
+                HeaderValue::from_str(realm).unwrap(),
+            );
+            header.insert(
+            HeaderName::from_static("authorization"),
+            HeaderValue::from_static("Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJ1c2VybmFtZSI6InJ1cnUiLCJwYXNzd29yZCI6InBhc3N3MHJkIiwicmVhbG1fc2V0dGluZ3MiOnsidGhlbWUiOiJEZWZhdWx0IiwibWV0YWRhdGEiOnsicmVhbG1fZGF0YSI6e319LCJpc19jb25maXJtYXRpb25fcmVxdWlyZWQiOmZhbHNlfSwicmVhbG0iOiJ0ZXN0IiwiZXhwIjoxNzU3ODQ1NjI0fQ.VGRGy6MTeCHA-Akbd-6Tsd-ttH01bLbcRyOohYFDN8PtiH56X9xoOe-nFDnHH3Q-1gITThokIsFMQUn972354w"));
+
+            println!("[testDecodeAuthToken] Header: {:?}", header);
+
+            let token = header.get_token();
+            assert!(token.is_some());
+            let token = token.unwrap();
+            let data = AppAuthorizer::decode_token(&token, "test");
+
+            assert_eq!(data.username, "ruru");
+            assert_eq!(data.password, "passw0rd");
+            assert_eq!(data.realm, RealmName::from("test"));
+            assert!(data.exp > 0);
         }
     }
 

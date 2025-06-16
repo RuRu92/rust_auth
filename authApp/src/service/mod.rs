@@ -27,10 +27,10 @@ pub mod customer_service {
 
             let token = AppToken {
                 username: data.username.clone(),
-                password: data.hashed_pass.clone(),
+                password: data.hashed_pass.clone(), // Should this be included?
                 realm_settings: realm_settings_provider.into_user_settings(&realm),
                 realm: realm.to_string(),
-                expiry: dt.unwrap().timestamp(),
+                exp: dt.unwrap().timestamp(),
             };
             
             let secret = realm_settings_provider.get_realm_secret(&realm);

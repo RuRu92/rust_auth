@@ -134,7 +134,8 @@ where
         match path_state {
             PathGuard::Missing => unimplemented!(), // Fallback to login
             PathGuard::Open => {
-                if path == "api/realm/login" {
+                log::info!("authMiddleware] - Realm: {realm_:?} | Path: {path}");
+                if path == "/api/realm/login" {
                     if realm_.is_none() {
                         info!("[authMiddleware] - No relam. Passthru");
                         return self.to_pinned_box(req);
@@ -147,11 +148,16 @@ where
                                     let fut = self.service.call(req);
 
                                     return Box::pin(async move {
+                                        let realm = realm_.clone().unwrap();
                                         let mut res = fut.await?;
+                                        log::info!(
+                                            "[authMiddleware-{realm}] - Authorized. Redirecting to realm"
+                                        );
                                         Ok(res.map_body(|header, body| {
+                                            let new_path = format!("/api/realm/{realm}");
                                             header.headers_mut().insert(
                                                 LOCATION,
-                                                HeaderValue::from_static("api/customer/login"),
+                                                HeaderValue::from_str(new_path.as_str()).unwrap(),
                                             );
                                             body
                                         }))

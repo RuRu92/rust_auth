@@ -38,6 +38,7 @@ pub enum Theme {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum RealmMetaData {
+    #[serde(rename = "realm_data")]
     GenericMap(HashMap<String, Value>),
     
 }
