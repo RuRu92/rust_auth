@@ -16,7 +16,7 @@ pub mod customer_service {
     use chrono::{Days, Utc};
     use crate::app::error::{APIError, APIResult};
     use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
-
+    use log::info;
 
     pub struct AuthenticatorService {}
 
@@ -34,13 +34,14 @@ pub mod customer_service {
             };
             
             let secret = realm_settings_provider.get_realm_secret(&realm);
+            info!("[initToken] Secret {secret}");
             let header = Header::new(Algorithm::HS512);
-            return encode(
+             encode(
                 &header,
                 &token,
                 &EncodingKey::from_secret(secret.as_bytes())
                 )
-                .unwrap();
+                .unwrap()
         }
     }
 
