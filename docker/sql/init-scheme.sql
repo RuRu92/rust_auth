@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS realm_user (
     auth_token              TEXT,
     reset_token             TEXT,
     expires_at              DATETIME      NOT NULL DEFAULT (CURRENT_TIMESTAMP + INTERVAL 60 DAY),
+    last_login              DATETIME,
     is_god                  BOOLEAN       NOT NULL DEFAULT FALSE,
     role                    VARCHAR(20)   NOT NULL DEFAULT 'CUSTOMER',
     password                TEXT          NOT NULL,

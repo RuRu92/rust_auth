@@ -1,3 +1,4 @@
+use jsonwebtoken::errors::Error;
 use log::log;
 use crate::domain::customer::dto::{CreateUser, UserMetadata};
 use crate::domain::customer::{Address, Role, User, UserWithAddress};
@@ -118,6 +119,20 @@ impl UserStorage {
                     city,
                     post_code,
                 },
+            },
+        )
+    }
+    
+    pub(crate) fn update_last_login(user: &User, realm: &str, tx: &mut Transaction<'_>) -> APIResult<(), mysql::Error> {
+        tx.exec_drop(
+            "UPDATE realm_user
+                  SET last_login = NOW(),
+                      auth_token = :auth_token 
+                  WHERE user_id = :user_id AND realm_name = :realm",
+            params! {
+                "user_id" => &user.user_id,
+                "realm" => realm,
+                "auth_token" => &user.auth_token.as_deref(),
             },
         )
     }

@@ -32,3 +32,19 @@ docker rmi <image_name_or_id>
 docker exec -it <mysql_container_name> bash
 mysql -u <username> -p
 
+
+Add new column `last_login` to `realm_user` table (MySQL):
+
+```sql
+ALTER TABLE realm_user
+ADD COLUMN last_login DATETIME NULL AFTER auth_token;
+```
+
+To update the `last_login` value for a user:
+
+```sql
+UPDATE realm_user
+SET last_login = NOW()
+WHERE user_id = '<user_id>';
+```
+

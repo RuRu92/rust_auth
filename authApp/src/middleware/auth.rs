@@ -240,8 +240,9 @@ fn verify_token(
     let realm = maybe_realm.unwrap();
     let realm_settings = data.realm_settings_provider.clone();
     let secret = &realm_settings.get_realm_secret(&realm);
-    info!("[authMiddleware] Secret: {secret}");
+    // info!("[authMiddleware] Secret: {secret}");
     let app_token = AppAuthorizer::decode_token(&auth_token, secret);
+    info!("[authMiddleware] AppToken: {app_token:?}");
     let db: Arc<DB> = data.execution_context.db.clone();
     let user: User = db
         .in_transaction(AccessMode::ReadOnly, |tx| {
@@ -249,6 +250,7 @@ fn verify_token(
         })
         .unwrap()
         .unwrap();
+    info!("[authMiddleware] User: {user:?}");
     if let Some(token) = user.auth_token {
         return Ok(auth_token == token);
     } else {

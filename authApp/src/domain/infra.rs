@@ -63,7 +63,7 @@ pub mod web {
         type Token = String;
 
         fn get_token(&self) -> Option<Self::Token> {
-            info!("[get_token] Getting token from headers: {:?}", self);
+            // info!("[get_token] Getting token from headers: {:?}", self);
             self.get("authorization")
                 .and_then(|auth: &HeaderValue| auth.to_str().ok()) // Convert HeaderValue to &str
                 .and_then(|auth_str| auth_str.strip_prefix("Bearer ")) // Strip "Bearer " prefix

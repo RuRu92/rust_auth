@@ -1,21 +1,21 @@
 pub mod customer {
     use std::fmt;
 
+    use crate::app::AppState;
     use crate::domain::customer::{dto::CreateUser, LoginRequest, LoginRequestArguments, User};
     use crate::domain::infra::web::auth::{AppAuthorizer, Authorizer};
     use crate::domain::infra::web::{JsonErrorResponse, LoginError, RealmFinder, TokenFinder};
     use crate::service::customer_service::{AuthenticatorService, CustomerService};
-    use crate::app::AppState;
 
     use crate::domain::realm::RealmName;
     use crate::repository::realm::RealmSettingProvider;
     use actix_web::http::StatusCode;
     use actix_web::web::Data;
     use actix_web::{web, web::Path, HttpRequest, HttpResponse, Responder};
+    use mysql::AccessMode;
     use serde::Deserialize;
 
-    use log::{info, warn, error, debug};
-
+    use log::{debug, error, info, warn};
 
     #[derive(Deserialize)]
     pub struct UserId {
@@ -39,40 +39,42 @@ pub mod customer {
             .get_realm()
             .ok_or(LoginError::MissingRealmHeader)?;
 
+        info!("[Login]: Status - {:?}", req);
         let token = req.headers().get_token();
 
-                let login_request = json.0;
+        let login_request = json.0;
 
-                let data = match req.app_data::<Data<AppState>>() {
-                    Some(data) => data.clone(),
-                    None => {
-                        return Err(LoginErrorResponse::new(
-                            None,
-                            "Failed to find realm".to_string(),
-                            StatusCode::NOT_FOUND,
-                        ))
-                    }
-                };
-        
-                let login_user_data: Result<LoginUserData<'_>, _> = fetch_user_data(&data, &realm, &login_request).await;
-                match login_user_data {
-                    Err(err) => {
-                        info!("[Login]: Err - {:?}", err);
-                        return Err(err.into());
-                    }
-                    Ok(user_data) => {
-                        authenticate_user(user_data, login_request).await
-                    }
+        let data = match req.app_data::<Data<AppState>>() {
+            Some(data) => data.clone(),
+            None => {
+                return Err(LoginErrorResponse::new(
+                    None,
+                    "Failed to find realm".to_string(),
+                    StatusCode::NOT_FOUND,
+                ))
             }
-            
-    } 
-    
+        };
+
+        let login_user_data: Result<LoginUserData<'_>, _> =
+            fetch_user_data(&data, &realm, &login_request).await;
+        match login_user_data {
+            Err(err) => {
+                info!("[Login]: Err - {:?}", err);
+                return Err(err.into());
+            }
+            Ok(user_data) => authenticate_user(user_data, login_request, &data).await,
+        }
+    }
 
     async fn authenticate_user<'a>(
         login_user_data: LoginUserData<'a>,
         login_request: LoginRequest,
+        data: &'a Data<AppState>,
     ) -> Result<HttpResponse, LoginErrorResponse> {
-        info!("[Authentication] Authenticating User: {}", &login_user_data.user.username);
+        info!(
+            "[Authentication] Authenticating User: {}",
+            &login_user_data.user.username
+        );
         let login_arg = LoginRequestArguments {
             login_request,
             user: login_user_data.user,
@@ -85,8 +87,19 @@ pub mod customer {
         if is_ok {
             let token = AuthenticatorService::initialise_token(
                 &login_user_data.realm,
-                &login_arg.user, 
-                login_user_data.realm_settings_provider.clone());
+                &login_arg.user,
+                login_user_data.realm_settings_provider.clone(),
+            );
+            data.execution_context.db
+                .in_transaction(AccessMode::ReadWrite, CustomerService::update_last_login(&login_arg.user, &login_user_data.realm))
+                .map_err(|e| {
+                    error!("[Login]: Failed to update last login: {}", e);
+                    LoginErrorResponse::new(
+                        None,
+                        "Failed to update last login".to_string(),
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                    )
+                })?;
             Ok(HttpResponse::Ok().json(token))
         } else {
             Err(LoginErrorResponse::new(
@@ -107,9 +120,7 @@ pub mod customer {
         let rlm = realm.clone();
         let result = web::block(move || CustomerService::fetch_user_by_name(&username, &rlm, &db))
             .await
-            .map_err(|e| {
-                LoginError::DatabaseError(e.to_string())
-            })?;
+            .map_err(|e| LoginError::DatabaseError(e.to_string()))?;
 
         match result {
             Ok(None) => Err(LoginError::UserNotFound),
@@ -118,9 +129,7 @@ pub mod customer {
                 realm: realm.clone(),
                 realm_settings_provider: data.realm_settings_provider.as_ref(),
             }),
-            Err(err) => {
-                Err(LoginError::DatabaseError(err.to_string()))
-            }
+            Err(err) => Err(LoginError::DatabaseError(err.to_string())),
         }
     }
 
@@ -132,7 +141,7 @@ pub mod customer {
             let db = &data.execution_context.db;
             CustomerService::fetch_user(&path_param.user_id, &db)
         })
-            .await;
+        .await;
 
         match db_res {
             Ok(user_res) => user_res
@@ -159,25 +168,24 @@ pub mod customer {
         info!("[GetAll] Fetching all users for a realm.");
         // Extract just the realm string (and anything else you need from the request) here.
         let realm_string = req
-        .headers()
-        .get("Realm")
-        .ok_or_else(|| {
-            JsonErrorResponse::<Option<String>>::new(
-                None,
-                "No realm provided.".to_string(),
-                StatusCode::BAD_REQUEST,
-            )
-        })?
-        .to_str()
-        .map_err(|_| {
-            JsonErrorResponse::<Option<String>>::new(
-                None,
-                "Invalid Realm header format.".to_string(),
-                StatusCode::BAD_REQUEST,
-            )
-        })?
-        .to_string();
-            
+            .headers()
+            .get("Realm")
+            .ok_or_else(|| {
+                JsonErrorResponse::<Option<String>>::new(
+                    None,
+                    "No realm provided.".to_string(),
+                    StatusCode::BAD_REQUEST,
+                )
+            })?
+            .to_str()
+            .map_err(|_| {
+                JsonErrorResponse::<Option<String>>::new(
+                    None,
+                    "Invalid Realm header format.".to_string(),
+                    StatusCode::BAD_REQUEST,
+                )
+            })?
+            .to_string();
 
         // Now we can safely move realm_string (and data) into the blocking call.
         let db_res = web::block(move || {
@@ -196,7 +204,7 @@ pub mod customer {
                 StatusCode::INTERNAL_SERVER_ERROR,
             )
         })?;
-    
+
         match db_res {
             Ok(user_res) => Ok(HttpResponse::Ok().json(user_res)),
             Err(e) => Err(JsonErrorResponse::<Option<String>>::new(
@@ -228,7 +236,7 @@ pub mod customer {
                 let user_data = req_body.into_inner();
                 CustomerService::create(user_data, realm_header.unwrap(), data.get_ref())
             })
-                .await;
+            .await;
 
             match future {
                 Ok(result) => result
@@ -249,7 +257,6 @@ pub mod customer {
     pub async fn manual_hello() -> impl Responder {
         HttpResponse::Ok().body("Hey there!")
     }
-    
 }
 
 pub mod admin {}
