@@ -116,11 +116,14 @@ pub mod customer_service {
             }
         }
 
-        pub(crate) fn update_last_login<'a>(
-            user: &'a User,
-            realm: &'a str,
-        ) -> impl FnMut(&'a mut Transaction) -> APIResult<(), mysql::Error> {
-            move |tx: &'a mut Transaction| UserStorage::update_last_login(user, realm, tx)
+        pub(crate) fn update_last_login(
+            user: &User,
+            realm: &str,
+            db_context: &DB,
+        ) -> APIResult<(), APIError> {
+            db_context.in_transaction(AccessMode::ReadWrite, |tx: &mut Transaction| {
+                UserStorage::update_last_login(user, realm, tx)
+            })
         }
     }
 }

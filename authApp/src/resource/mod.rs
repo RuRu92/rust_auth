@@ -9,7 +9,7 @@ pub mod customer {
 
     use crate::domain::realm::RealmName;
     use crate::repository::realm::RealmSettingProvider;
-    use actix_web::http::StatusCode;
+    use actix_web::http::{header, StatusCode};
     use actix_web::web::Data;
     use actix_web::{web, web::Path, HttpRequest, HttpResponse, Responder};
     use mysql::AccessMode;
@@ -40,7 +40,9 @@ pub mod customer {
             .ok_or(LoginError::MissingRealmHeader)?;
 
         info!("[Login]: Status - {:?}", req);
-        let token = req.headers().get_token();
+        let headers = req.headers();
+        info!("Login Headers: {:?}", headers);
+        let token = headers.get_token();
 
         let login_request = json.0;
 
@@ -90,16 +92,20 @@ pub mod customer {
                 &login_arg.user,
                 login_user_data.realm_settings_provider.clone(),
             );
-            data.execution_context.db
-                .in_transaction(AccessMode::ReadWrite, CustomerService::update_last_login(&login_arg.user, &login_user_data.realm))
-                .map_err(|e| {
-                    error!("[Login]: Failed to update last login: {}", e);
-                    LoginErrorResponse::new(
-                        None,
-                        "Failed to update last login".to_string(),
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                    )
-                })?;
+            let db_context = &data.execution_context.db;
+            CustomerService::update_last_login(
+                &login_arg.user,
+                &login_user_data.realm,
+                &db_context,
+            )
+            .map_err(|e| {
+                error!("[Login]: Failed to update last login: {}", e);
+                LoginErrorResponse::new(
+                    None,
+                    "Failed to update last login".to_string(),
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                )
+            })?;
             Ok(HttpResponse::Ok().json(token))
         } else {
             Err(LoginErrorResponse::new(
