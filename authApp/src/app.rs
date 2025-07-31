@@ -5,8 +5,7 @@ use std::{collections::HashMap, result, sync::Arc};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{db::ExecutionContext, domain::customer::Role, middleware::auth::PathGuard, repository::realm::RealmSettingProvider};
-
+use crate::{db::ExecutionContext, domain::customer::Role, adapter::auth::PathGuard, repository::realm::RealmSettingProvider};
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct Principal {

@@ -129,7 +129,7 @@ mod test {
     use std::num::NonZeroU32;
 
     #[test]
-    fn test_hashing_password() {
+        fn test_hashing_password() {
         let mut user = CreateUser {
             realm: "rj.nitro".to_owned(),
             username: "ruru".to_string(),

@@ -10,7 +10,7 @@ mod resource;
 mod route;
 mod service;
 
-pub mod middleware;
+pub mod adapter;
 
 
 use actix_web::{middleware as actix_mw, rt as actix_rt, web, App, HttpServer};
@@ -22,7 +22,7 @@ use std::collections::{hash_map, HashMap};
 use std::pin::Pin;
 use std::sync::Arc;
     
-use crate::middleware::auth::PathGuard;
+use crate::adapter::auth::PathGuard;
 
 
 
@@ -58,7 +58,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(app_data.clone())
             .wrap(actix_mw::Logger::default())
             .wrap(actix_mw::Logger::new("%a - %r - %P %{User-Agent}i"))
-            .wrap(middleware::auth::AuthMiddleware {
+            .wrap(adapter::auth::AuthMiddleware {
                 secret: Box::new(|realm, username| format!("{realm}|{username}")),
             })
             .configure(routes)
