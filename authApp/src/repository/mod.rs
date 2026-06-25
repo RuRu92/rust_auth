@@ -1,13 +1,16 @@
+use chrono::{Local, Utc};
 use crate::domain::customer::dto::{CreateUser, UserMetadata};
 use crate::domain::customer::{Address, Role, User, UserWithAddress};
 use crate::domain::realm::RealmName;
 use crate::Principal;
 use mysql::error::Result;
-use mysql::prelude::Queryable;
+use mysql::prelude::{Queryable, FromValue, };
 use mysql::{params, Transaction};
 use uuid::Uuid;
 
 pub mod realm;
+
+// trait FromValue for DateTime
 
 type CountryCode = String;
 
@@ -114,7 +117,9 @@ impl Repository<User> for UserStorage {
 
     fn create_from(data: Self::CreationData, realm: &RealmName, tx: &mut Transaction) -> Result<Self::ID> {
         let user_id = Uuid::new_v4().to_string();
-
+        let dt = Local::now();
+        let naive_utc = dt.naive_utc();
+        let offset = dt.offset().clone();
         tx.exec_drop(
             "INSERT INTO realm_user (realm_name, user_id, username, role, name, password, email) \
                       VALUES (:realm, :user_id, :username, :role, :name, :password, :email)",
@@ -126,7 +131,7 @@ impl Repository<User> for UserStorage {
             "name" => &data.name,
             "password" => &data.password,
             "email" => &data.email,
-            "expired_at" => chrono::DateTime(),
+            "expired_at" => Local::now().to_rfc3339()
             },
         )
         .expect("Failed to create user");

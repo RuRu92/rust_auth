@@ -139,14 +139,15 @@ mod test {
         let current_pass = user.password.clone();
 
         println!("Current Pass: {}", &current_pass);
-        let salt = format!("{}|{}", &user.username, realm).into_bytes();
-        let password_hash  =  user.hash_password(&realm).unwrap();
+        //let salt = format!("{}|{}", &user.username, realm).into_bytes();
+        user.hash_password(&realm);
 
-        println!("Hashed Pass: {}", &password_hash);
+        let hashed_password = user.password.clone();
+
+        println!("Hashed Pass: {}", &hashed_password);
 
         // Verify password against PHC string
-        let parsed_hash = PasswordHash::new(&password_hash).unwrap();
+        let parsed_hash = PasswordHash::new(&hashed_password).unwrap();
         assert!(Pbkdf2.verify_password(&current_pass.as_bytes(), &parsed_hash).is_ok());
-
     }
 }
